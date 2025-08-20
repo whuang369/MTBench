@@ -1,0 +1,38 @@
+# Python build file
+
+universe = container
+container_image = docker://python:3.11-slim
+# container_image = docker://nicholascorrado/multitask-rl:chtc
+
+executable = job.sh
+initial_dir = $(results_dir)
+log = ../../$(log_dir)/$(Process).log
+output = ../../$(log_dir)/$(Process).out
+error = ../../$(log_dir)/$(Process).err
+arguments = $(Process) $(Step) $(params)
+
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_output_files = results_$(Process).tar.gz
+
+#+IsBuildJob = true
+# Indicate which version of Linux (CentOS) you want to build your packages on
+requirements = (Target.HasCHTCStaging == true)
+request_gpus = 1
+
+request_cpus = 1
+request_memory = $(mem)GB
+request_disk = $(disk)GB
+
+# Extra GPU settings
+request_gpus            = 1
+Requirements            = (Target.CUDADriverVersion >= 12.1) && (Target.GPUs_GlobalMemoryMb > 30000)
+
+# change to true if *not* using staging for checkpoints and interested in accessing GPUs beyond CHTC
++WantGPULab = true
++WantFlocking           = false
++WantGlidein            = false
++GPUJobLength           = "short"
+
+queue $(num_jobs) mem, disk, params from $(commands_file)
+
