@@ -2,8 +2,8 @@ universe = vanilla
 executable = job_gpu_i.sh
 
 request_cpus = 1
-request_memory = 5GB
-request_disk = 10GB
+request_memory = 50GB
+request_disk = 50GB
 
 # Extra GPU settings
 request_gpus            = 1
