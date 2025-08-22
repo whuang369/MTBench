@@ -21,7 +21,7 @@ git checkout chtc
 
 ## Install Conda
 
-First, run `./install_miniconda` to install miniconda, then activate conda as follows:
+First, run `sh install_miniconda.sh` to install miniconda, then activate conda as follows:
 
 ```bash
 source miniconda3/bin/activate

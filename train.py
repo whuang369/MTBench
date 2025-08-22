@@ -1,4 +1,6 @@
 # docs and experiment results can be found at https://docs.cleanrl.dev/rl-algorithms/ppo/#ppo_continuous_actionpy
+import isaacgym
+import isaacgymenvs
 import os
 import random
 import time
@@ -6,7 +8,6 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 import gymnasium as gym
-import custom_envs
 import isaacgymenvs
 import numpy as np
 import torch
@@ -14,11 +15,12 @@ import torch.nn as nn
 import torch.optim as optim
 import tyro
 import yaml
-from stable_baselines3.common.utils import get_latest_run_id
 from torch.distributions.normal import Normal
 from torch.utils.tensorboard import SummaryWriter
 
 from utils import simulate
+
+import glob
 
 
 @dataclass
@@ -70,7 +72,7 @@ class Args:
     """total timesteps of the experiments"""
     learning_rate: float = 3e-4
     """the learning rate of the optimizer"""
-    num_envs: int = 1
+    num_envs: int = 4096
     """the number of parallel game environments"""
     num_steps: int = 2048
     """the number of steps to run in each environment per policy rollout"""
@@ -172,6 +174,24 @@ class Agent(nn.Module):
         action = probs.sample()
         return action
 
+def get_latest_run_id(log_path: str = "", log_name: str = "") -> int:
+    """
+    Returns the latest run number for the given log name and log path,
+    by finding the greatest number in the directories.
+
+    :param log_path: Path to the log folder containing several runs.
+    :param log_name: Name of the experiment. Each run is stored
+        in a folder named ``log_name_1``, ``log_name_2``, ...
+    :return: latest run number
+    """
+    max_run_id = 0
+    for path in glob.glob(os.path.join(log_path, f"{glob.escape(log_name)}_[0-9]*")):
+        file_name = path.split(os.sep)[-1]
+        ext = file_name.split("_")[-1]
+        if log_name == "_".join(file_name.split("_")[:-1]) and ext.isdigit() and int(ext) > max_run_id:
+            max_run_id = int(ext)
+    return max_run_id
+
 if __name__ == "__main__":
     args = tyro.cli(Args)
     args.batch_size = int(args.num_envs * args.num_steps)
@@ -228,26 +248,22 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    envs = gym.vector.SyncVectorEnv(
-        [isaacgymenvs.make(
+    envs = isaacgymenvs.make(
             seed=args.seed,
             task=args.task,
             num_envs=args.num_envs,
             sim_device="cuda:0",
             rl_device="cuda:0",
             headless=True,
-        )]
-    )
-    envs_eval = gym.vector.SyncVectorEnv(
-        [isaacgymenvs.make(
-            seed=args.num_envs,
+        )
+    envs_eval = isaacgymenvs.make(
+            seed=args.seed,
             task=args.task,
-            num_envs=4096,
+            num_envs=args.num_envs,
             sim_device="cuda:0",
             rl_device="cuda:0",
             headless=True,
-        )]
-    )
+        )
     # env_eval = make_env(args.env_id, 0, args.capture_video, run_name, args.gamma)()
 
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
