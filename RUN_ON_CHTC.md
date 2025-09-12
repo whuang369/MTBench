@@ -16,14 +16,27 @@ After entering the interactive job, clone this repo into your job directory and 
 ```bash
 git clone https://github.com/whuang369/MTBench
 cd MTBench
-git checkout chtc
+git checkout ppo
 ```
 
-## Install Conda
-
-First, run `sh install_miniconda.sh` to install miniconda, then activate conda as follows:
+## Short Install
 
 ```bash
+source install.sh
+```
+
+## Detailed installation guide in case you need to change something :-)
+
+### Install Conda
+
+First, install conda as follows:
+
+```bash
+mkdir miniconda3
+wget https://repo.anaconda.com/miniconda/Miniconda3-py310_24.5.0-0-Linux-x86_64.sh -O miniconda3/miniconda.sh
+bash miniconda3/miniconda.sh -b -u -p miniconda3
+
+# Initialize Conda
 source miniconda3/bin/activate
 ```
 
@@ -43,7 +56,7 @@ conda create -y -n mtbench python=3.8
 conda activate mtbench
 ```
 
-## Install This repo
+### Install This repo
 
 Install necessary packages:
 ```bash
@@ -53,7 +66,7 @@ pip install moviepy
 pip install numpy==1.23.5
 ```
 
-## Install Isaac Gym
+### Install Isaac Gym
 
 Install isaacgym as follows:
 ```bash
