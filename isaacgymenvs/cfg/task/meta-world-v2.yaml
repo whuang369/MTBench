@@ -32,6 +32,15 @@ env:
   reward_scale: ${...reward_scale}
   fixed: ${...fixed}
 
+  # Dynamic task distribution options
+  dynamic_task_distribution: ${...dynamic_task_distribution}
+  
+  # Override specific parameters if needed
+  dynamic_task_distribution:
+    enabled: ${...dynamic_task_distribution.enabled}
+    type: ${...dynamic_task_distribution.type}
+    update_frequency: ${...dynamic_task_distribution.update_frequency}
+
 # set to True if you use camera sensors in the environment
 enableCameraSensors: True
 

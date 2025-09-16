@@ -21,7 +21,10 @@ do
 			sim_device=cuda:0 \
 			rl_device=cuda:0 \
 			record_videos=False \
-			max_iterations=$t"
+			max_iterations=$t" \
+            dynamic_task_distribution.enabled=True \
+            dynamic_task_distribution.type=performance_based \
+            dynamic_task_distribution.update_frequency=1000
 		echo $cmd
 		$cmd
 	done
