@@ -7,7 +7,7 @@ git clone https://github.com/whuang369/MTBench
 cd MTBench
 git checkout dynamic_task_counts
 source install.sh
-export WANDB_MODE=offline
+wandb login d0dbec0b8f79cdb57ef36ae46bb16a336954b2ca
 
 $cmd
 

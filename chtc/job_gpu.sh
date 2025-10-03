@@ -1,22 +1,13 @@
 #!/bin/bash
 git clone https://github.com/whuang369/MTBench
 cd MTBench
-git checkout chtc
-sh install_miniconda.sh
-source miniconda3/bin/activate
-conda create -y -n py38env python=3.8
-conda activate py38env
-find $CONDA_PREFIX -name "libpython3.8.so.1.0"
-export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
-conda create -y -n mtbench python=3.8
-conda activate mtbench
-pip install -e .
-pip install skrl
-pip install moviepy
-pip install numpy==1.23.5
-cp /staging/whuang369/IsaacGym_Preview_4_Package.tar.gz .
-tar -zxvf IsaacGym_Preview_4_Package.tar.gz
-cd isaacgym/python
-pip install -e .
-cd ../..
+git checkout dynamic_task_counts
+source install.sh
+export WANDB_MODE=offline
 sh exec/ppo_exps/mt10-rand/famo.sh
+tar -zcvf runs.tar.gz runs
+tar -zcvf wandb.tar.gz wandb
+cp runs.tar.gz /staging/whuang369/MTBench_Results/
+cp wandb.tar.gz /staging/whuang369/MTBench_Results/
+mv runs.tar.gz ..
+mv wandb.tar.gz ..

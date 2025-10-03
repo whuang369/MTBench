@@ -256,14 +256,14 @@ if __name__ == "__main__":
             rl_device="cuda:0",
             headless=True,
         )
-    envs_eval = isaacgymenvs.make(
-            seed=args.seed,
-            task=args.task,
-            num_envs=args.num_envs,
-            sim_device="cuda:0",
-            rl_device="cuda:0",
-            headless=True,
-        )
+    # envs_eval = isaacgymenvs.make(
+    #         seed=args.seed,
+    #         task=args.task,
+    #         num_envs=args.num_envs,
+    #         sim_device="cuda:0",
+    #         rl_device="cuda:0",
+    #         headless=True,
+    #     )
     # env_eval = make_env(args.env_id, 0, args.capture_video, run_name, args.gamma)()
 
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
@@ -417,23 +417,23 @@ if __name__ == "__main__":
 
         update_count += 1
 
-        if iteration % args.eval_freq == 0:
-            return_avg, return_std, success_avg, success_std = simulate(env=envs_eval, actor=agent, eval_episodes=args.eval_episodes)
-
-            print(f"Eval num_timesteps={global_step}")
-            print(f"episode_return={return_avg:.2f} +/- {return_std:.2f}")
-            print(f"episode_success={success_avg:.2f} +/- {success_std:.2f}")
-            print()
-
-            logs['timestep'].append(global_step)
-            logs['return'].append(return_avg)
-            logs['success_rate'].append(success_avg)
-            logs['update'].append(update_count)
-
-            np.savez(
-                f'{args.output_dir}/evaluations.npz',
-                **logs,
-            )
+        # if iteration % args.eval_freq == 0:
+            # return_avg, return_std, success_avg, success_std = simulate(env=envs_eval, actor=agent, eval_episodes=args.eval_episodes)
+            #
+            # print(f"Eval num_timesteps={global_step}")
+            # print(f"episode_return={return_avg:.2f} +/- {return_std:.2f}")
+            # print(f"episode_success={success_avg:.2f} +/- {success_std:.2f}")
+            # print()
+            #
+            # logs['timestep'].append(global_step)
+            # logs['return'].append(return_avg)
+            # logs['success_rate'].append(success_avg)
+            # logs['update'].append(update_count)
+            #
+            # np.savez(
+            #     f'{args.output_dir}/evaluations.npz',
+            #     **logs,
+            # )
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
