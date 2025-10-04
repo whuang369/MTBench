@@ -14,7 +14,7 @@ do
 			fixed=False \
 			reward_scale=100 \
 			termination_on_success=False \
-			experiment=05_16_shppo_paco_mt10_rand_envs_${e}_seed_$i \
+			experiment=10_04_shppo_paco_mt10_rand_envs_${e}_seed_$i \
 			train=meta-world-mt10-paco-SHPPO \
 			seed=$i \
 			wandb_activate=True \

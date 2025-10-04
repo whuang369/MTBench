@@ -3,7 +3,7 @@ task_counts=[410,410,410,410,410,410,409,409,409,409]
 for e in 4096
 do
 	t=$(( (1000000000 + (e * 32) - 1) / (e * 32) ))
-	for i in 42 43 44
+	for i in 42 43 44 45 46 47 48 49 50 51
 	do
 		cmd="python isaacgymenvs/train.py \
 			task_id=[4,16,17,18,28,31,38,40,48,49] \
@@ -13,7 +13,7 @@ do
 			fixed=False \
 			reward_scale=100 \
 			termination_on_success=False \
-			experiment=06_20_ppo_vanilla_mt10_rand_envs_${e}_seed_${i} \
+			experiment=10_04_ppo_vanilla_mt10_rand_envs_${e}_seed_${i} \
 			train=meta-world-mt10-vanilla-PPO\
 			seed=$i \
 			wandb_activate=True \

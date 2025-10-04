@@ -15,7 +15,7 @@ do
 			reward_scale=100 \
 			termination_on_success=False \
 			experiment=10_04_mhppo_vanilla_mt10_rand_envs_${e}_seed_${i} \
-			train=meta-world-mt10-vanilla-MHPPO \
+			train=meta-world-mt10-vanilla-GRPO \
 			seed=$i \
 			wandb_activate=True \
 			wandb_project=IsaacGym \

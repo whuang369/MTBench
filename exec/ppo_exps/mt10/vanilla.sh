@@ -11,7 +11,7 @@ do
 		reward_scale=100 \
 		termination_on_success=False \
 		experiment=0123_MT10_ppo_vanilla \
-		train=meta-world-mt-PPO-Vanilla \
+		train=meta-world-mt50-vanilla-PPO \
 		seed=$i \
 		wandb_activate=False \
 		wandb_entity=meta-world \
