@@ -18,6 +18,9 @@ do
 			train=meta-world-mt10-vanilla-GRPO \
 			seed=$i \
 			wandb_activate=True \
+			wandb_entity=whuang369-university-of-wisconsin-madison \
+			wandb_project=mtbench-experiments \
+			wandb_group=mtbench-reproduce-cagrad \
 			wandb_project=IsaacGym \
 			headless=True \
 			sim_device=cuda:0 \

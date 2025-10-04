@@ -18,7 +18,9 @@ do
 			train=meta-world-mt10-paco-SHPPO \
 			seed=$i \
 			wandb_activate=True \
-			wandb_project=IsaacGym \
+			wandb_entity=whuang369-university-of-wisconsin-madison \
+			wandb_project=mtbench-experiments \
+			wandb_group=mtbench-reproduce-sh_paco \
 			headless=True \
 			sim_device=cuda:0 \
 			rl_device=cuda:0 \

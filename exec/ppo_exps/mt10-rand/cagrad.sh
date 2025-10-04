@@ -18,7 +18,9 @@ do
 			train=meta-world-mt10-cagrad-PPO \
 			seed=$i \
 			wandb_activate=True \
-			wandb_project=IsaacGym \
+			wandb_entity=whuang369-university-of-wisconsin-madison \
+			wandb_project=mtbench-experiments \
+			wandb_group=mtbench-reproduce-cagrad \
 			headless=True \
 			sim_device=cuda:0 \
 			rl_device=cuda:0 \

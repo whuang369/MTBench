@@ -42,10 +42,10 @@ sigma: ''
 multi_gpu: False
 
 wandb_activate: True
-wandb_group: 'mtbench-testing'
+wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: 'whuang369-university-of-wisconsin-madison'
-wandb_project: 'mtbench-experiments'
+wandb_entity: ''
+wandb_project: ''
 wandb_tags: []
 wandb_logcode_dir: '' 
 
