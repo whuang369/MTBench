@@ -134,6 +134,8 @@ class MTA2CAgent(A2CAgent):
         self.algo_observer.after_init(self)
         self.actor_loss_func = actor_loss_mt
 
+        self.global_steps = 0
+
     def restore(self, fn):
         # weights = torch.load(fn, map_location=self.device)
         weights = torch.load(fn)
@@ -160,8 +162,13 @@ class MTA2CAgent(A2CAgent):
         if (self.update_distribution_steps is not None and 
             self.global_steps - self.last_recreation_step >= self.update_distribution_steps):
             self.recreate_environment()
+            for i in range(100):
+                print("correct!")
+        else:
+            self.recreate_environment()
 
         for n in range(self.horizon_length):
+            self.global_steps += 1
             if self.use_action_masks:
                 masks = self.vec_env.get_action_masks()
                 res_dict = self.get_masked_action_values(self.obs, masks)
@@ -684,9 +691,90 @@ class MTA2CAgent(A2CAgent):
         new_num_envs = sum(self.recreate_task_env_count)
         current_cfg["env"]["numEnvs"] = new_num_envs
         
+        # Check if we're reducing the number of environments (safer)
+        current_num_envs = self.vec_env.env.num_envs
+        if new_num_envs > current_num_envs:
+            print(f"Warning: Increasing environment count from {current_num_envs} to {new_num_envs}")
+            print("This may cause GPU memory issues. Consider reducing the new environment count.")
+        
+        # Safety check: prevent creating too many environments
+        # max_safe_envs = 2048  # Conservative limit
+        # if new_num_envs > max_safe_envs:
+        #     print(f"Error: Requested {new_num_envs} environments exceeds safe limit of {max_safe_envs}")
+        #     print("Skipping environment recreation to prevent segfault.")
+        #     return
+        
         # Update agent's environment-related attributes
         self.num_actors = new_num_envs
         self.batch_size_envs = new_num_envs
+        
+        # PROPERLY DESTROY OLD ENVIRONMENT FIRST
+        print("Destroying old environment to free GPU memory...")
+        destruction_start_time = time.time()
+        
+        # Store reference to old environment
+        old_vec_env = self.vec_env
+        
+        # Clear experience buffer first
+        if hasattr(self, 'experience_buffer') and self.experience_buffer is not None:
+            print("Clearing experience buffer...")
+            # Clear all buffer tensors
+            for key in ['obses', 'next_obses', 'next_values', 'rewards', 'dones', 'values', 'actions', 'neglogpacs', 'mu', 'sigma']:
+                if key in self.experience_buffer.tensor_dict:
+                    del self.experience_buffer.tensor_dict[key]
+            
+            # Clear GPU cache after buffer cleanup
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        
+        # Properly destroy the old environment
+        try:
+            # Call close/cleanup methods if they exist
+            if hasattr(old_vec_env, 'close'):
+                old_vec_env.close()
+            if hasattr(old_vec_env, 'env') and hasattr(old_vec_env.env, 'close'):
+                old_vec_env.env.close()
+            if hasattr(old_vec_env, 'env') and hasattr(old_vec_env.env, 'gym'):
+                # Destroy Isaac Gym simulation
+                if hasattr(old_vec_env.env.gym, 'destroy_sim'):
+                    old_vec_env.env.gym.destroy_sim(old_vec_env.env.sim)
+                if hasattr(old_vec_env.env.gym, 'destroy_viewer'):
+                    old_vec_env.env.gym.destroy_viewer(old_vec_env.env.viewer)
+            
+            # Delete the environment object
+            del old_vec_env
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+            # Clear GPU cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()  # Wait for all operations to complete
+            
+            print("Old environment destroyed successfully")
+            
+        except Exception as e:
+            print(f"Warning: Error destroying old environment: {e}")
+            # Continue anyway
+        
+        destruction_time = time.time() - destruction_start_time
+        print(f"Environment destruction took {destruction_time:.4f} seconds")
+        
+        # Additional memory cleanup before creating new environment
+        print("Performing additional memory cleanup...")
+        import gc
+        gc.collect()
+        
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            time.sleep(2.0)
+            torch.cuda.empty_cache()
+            # Get current GPU memory usage
+            allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+            cached = torch.cuda.memory_reserved() / 1024**3  # GB
+            print(f"GPU memory after cleanup - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
         
         # Recreate the environment using the existing environment creator
         env_creation_start_time = time.time()
@@ -694,22 +782,38 @@ class MTA2CAgent(A2CAgent):
         from isaacgymenvs.utils.reformat import omegaconf_to_dict
         
         cfg_dict = omegaconf_to_dict(current_cfg)
-        create_rlgpu_env = get_rlgames_env_creator(
-            seed=self.seed,
-            task_config=cfg_dict,
-            task_name=cfg_dict["name"],
-            sim_device=self.sim_device,
-            rl_device=self.rl_device,
-            graphics_device_id=self.graphics_device_id,
-            headless=self.headless,
-            multi_gpu=self.multi_gpu,
-            virtual_screen_capture=False,
-            force_render=True,
-        )
+
+        print("Free mem before create:", torch.cuda.mem_get_info())
         
-        # Create new environment
-        new_vec_env = create_rlgpu_env()
-        env_creation_time = time.time() - env_creation_start_time
+        try:
+            print(f"Creating new environment with {new_num_envs} environments...")
+            create_rlgpu_env = get_rlgames_env_creator(
+                seed=current_cfg.get("seed", 42),
+                task_config=cfg_dict,
+                task_name=cfg_dict["name"],
+                sim_device=current_cfg.get("sim_device", "cuda:0"),
+                rl_device=current_cfg.get("rl_device", "cuda:0"),
+                graphics_device_id=current_cfg.get("graphics_device_id", 0),
+                headless=current_cfg.get("headless", True),
+                multi_gpu=current_cfg.get("multi_gpu", False),
+                virtual_screen_capture=False,
+                force_render=True,
+            )
+            
+            # Create new environment
+            new_vec_env = create_rlgpu_env()
+            env_creation_time = time.time() - env_creation_start_time
+            print(f"New environment created successfully in {env_creation_time:.4f} seconds")
+            
+        except Exception as e:
+            print(f"Error creating new environment: {e}")
+            print("Falling back to original environment configuration")
+            # Restore original configuration
+            current_cfg["env"]["taskEnvCount"] = self.vec_env.env.cfg["env"]["taskEnvCount"]
+            current_cfg["env"]["numEnvs"] = self.vec_env.env.cfg["env"]["numEnvs"]
+            self.num_actors = self.vec_env.env.num_envs
+            self.batch_size_envs = self.vec_env.env.num_envs
+            return
         
         # Update the agent's environment reference
         reference_update_start_time = time.time()
@@ -722,9 +826,23 @@ class MTA2CAgent(A2CAgent):
         # Update experience buffer size if needed
         buffer_update_start_time = time.time()
         if hasattr(self, 'experience_buffer') and self.experience_buffer is not None:
+            print("Recreating experience buffer...")
+            # Create new buffer tensors
             self.experience_buffer.tensor_dict['obses'] = torch.zeros((self.horizon_length, new_num_envs) + self.obs_shape, device=self.ppo_device)
             self.experience_buffer.tensor_dict['next_obses'] = torch.zeros_like(self.experience_buffer.tensor_dict['obses'])
             self.experience_buffer.tensor_dict['next_values'] = torch.zeros((self.horizon_length, new_num_envs, self.value_size), device=self.ppo_device)
+            self.experience_buffer.tensor_dict['rewards'] = torch.zeros((self.horizon_length, new_num_envs, 1), device=self.ppo_device)
+            self.experience_buffer.tensor_dict['dones'] = torch.zeros((self.horizon_length, new_num_envs), device=self.ppo_device)
+            self.experience_buffer.tensor_dict['values'] = torch.zeros((self.horizon_length, new_num_envs, self.value_size), device=self.ppo_device)
+            self.experience_buffer.tensor_dict['actions'] = torch.zeros((self.horizon_length, new_num_envs, self.actions_num), device=self.ppo_device)
+            self.experience_buffer.tensor_dict['neglogpacs'] = torch.zeros((self.horizon_length, new_num_envs), device=self.ppo_device)
+            self.experience_buffer.tensor_dict['mu'] = torch.zeros((self.horizon_length, new_num_envs, self.actions_num), device=self.ppo_device)
+            self.experience_buffer.tensor_dict['sigma'] = torch.zeros((self.horizon_length, new_num_envs, self.actions_num), device=self.ppo_device)
+            
+            # Clear GPU cache after buffer recreation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
         buffer_update_time = time.time() - buffer_update_start_time
         
         # Update current frames tracking
@@ -736,6 +854,7 @@ class MTA2CAgent(A2CAgent):
         # Print detailed timing information
         print(f"Environment recreation timing breakdown:")
         print(f"  - Config preparation: {config_time:.4f} seconds")
+        print(f"  - Environment destruction: {destruction_time:.4f} seconds")
         print(f"  - Environment creation: {env_creation_time:.4f} seconds")
         print(f"  - Reference update & reset: {reference_update_time:.4f} seconds")
         print(f"  - Buffer update: {buffer_update_time:.4f} seconds")
@@ -746,6 +865,7 @@ class MTA2CAgent(A2CAgent):
         if hasattr(self, 'writer') and self.writer is not None:
             self.writer.add_scalar('env_recreation/total_time', total_recreation_time, self.global_steps)
             self.writer.add_scalar('env_recreation/config_time', config_time, self.global_steps)
+            self.writer.add_scalar('env_recreation/destruction_time', destruction_time, self.global_steps)
             self.writer.add_scalar('env_recreation/env_creation_time', env_creation_time, self.global_steps)
             self.writer.add_scalar('env_recreation/reference_update_time', reference_update_time, self.global_steps)
             self.writer.add_scalar('env_recreation/buffer_update_time', buffer_update_time, self.global_steps)

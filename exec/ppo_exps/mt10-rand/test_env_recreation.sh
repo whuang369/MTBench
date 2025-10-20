@@ -19,7 +19,7 @@ do
     t=$(( (1000000000 + (e * 32) - 1) / (e * 32) ))
     
     # Test with different recreation frequencies
-    for recreation_freq in 1000 5000 10000
+    for recreation_freq in 1 5000 10000
     do
         echo "Testing with recreation frequency: $recreation_freq steps"
         

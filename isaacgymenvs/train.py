@@ -68,6 +68,15 @@ def preprocess_train_config(cfg, config_dict):
     train_cfg['device'] = cfg.rl_device
 
     train_cfg['full_experiment_name'] = cfg.get('full_experiment_name')
+    
+    # Add environment recreation parameters
+    if hasattr(cfg, 'update_distribution_steps') and cfg.update_distribution_steps is not None:
+        train_cfg['update_distribution_steps'] = cfg.update_distribution_steps
+        print(f'Added update_distribution_steps: {cfg.update_distribution_steps}')
+    
+    if hasattr(cfg, 'recreate_task_env_count') and cfg.recreate_task_env_count is not None:
+        train_cfg['recreate_task_env_count'] = cfg.recreate_task_env_count
+        print(f'Added recreate_task_env_count: {cfg.recreate_task_env_count}')
 
     print(f'Using rl_device: {cfg.rl_device}')
     print(f'Using sim_device: {cfg.sim_device}')

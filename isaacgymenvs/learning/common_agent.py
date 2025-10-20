@@ -595,14 +595,14 @@ class CommonAgent(a2c_continuous.A2CAgent):
         
         cfg_dict = omegaconf_to_dict(current_cfg)
         create_rlgpu_env = get_rlgames_env_creator(
-            seed=self.seed,
+            seed=current_cfg.get("seed", 42),
             task_config=cfg_dict,
             task_name=cfg_dict["name"],
-            sim_device=self.sim_device,
-            rl_device=self.rl_device,
-            graphics_device_id=self.graphics_device_id,
-            headless=self.headless,
-            multi_gpu=self.multi_gpu,
+            sim_device=current_cfg.get("sim_device", "cuda:0"),
+            rl_device=current_cfg.get("rl_device", "cuda:0"),
+            graphics_device_id=current_cfg.get("graphics_device_id", 0),
+            headless=current_cfg.get("headless", True),
+            multi_gpu=current_cfg.get("multi_gpu", False),
             virtual_screen_capture=False,
             force_render=True,
         )
