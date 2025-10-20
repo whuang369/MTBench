@@ -78,6 +78,10 @@ record_videos: False
 termination_on_success: True
 reward_scale: 1.0
 
+# Environment recreation settings
+update_distribution_steps: null  # Set to positive integer to enable environment recreation every N steps
+recreate_task_env_count: null    # New task_env_count to use when recreating environment
+
 sparse_reward: False
 
 algorithm: mt_a2c_continuous  # pcgrad_a2c

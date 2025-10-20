@@ -44,6 +44,7 @@ from rl_games.common import schedulers
 from rl_games.common import vecenv
 
 import torch
+import torch.nn as nn
 from torch import optim
 
 from . import amp_datasets as amp_datasets
@@ -64,6 +65,12 @@ class CommonAgent(a2c_continuous.A2CAgent):
         self._setup_action_space()
         self.bounds_loss_coef = config.get('bounds_loss_coef', None)
         self.clip_actions = config.get('clip_actions', True)
+        self.update_frequency = 1000000
+        
+        # Environment recreation settings
+        self.update_distribution_steps = config.get('update_distribution_steps', None)
+        self.recreate_task_env_count = config.get('recreate_task_env_count', None)
+        self.last_recreation_step = 0
 
         self.network_path = self.nn_dir
         
@@ -97,6 +104,8 @@ class CommonAgent(a2c_continuous.A2CAgent):
         self.use_experimental_cv = self.config.get('use_experimental_cv', True)
         self.dataset = amp_datasets.AMPDataset(self.batch_size, self.minibatch_size, self.is_discrete, self.is_rnn, self.ppo_device, self.seq_len)
         self.algo_observer.after_init(self)
+
+        self.global_steps = 0
         
         return
 
@@ -265,6 +274,15 @@ class CommonAgent(a2c_continuous.A2CAgent):
         update_list = self.update_list
 
         for n in range(self.horizon_length):
+            self.global_steps += 1
+            if self.global_steps % self.update_frequency == 0:
+                self.vec_env.update_task_distribution()
+            
+            # Check if we need to recreate the environment
+            if (self.update_distribution_steps is not None and 
+                self.global_steps - self.last_recreation_step >= self.update_distribution_steps):
+                self.recreate_environment()
+            
             self.obs, done_env_ids = self._env_reset_done()
             self.experience_buffer.update_data('obses', n, self.obs['obs'])
 
@@ -542,3 +560,64 @@ class CommonAgent(a2c_continuous.A2CAgent):
         self.writer.add_scalar('info/clip_frac', torch_ext.mean_list(train_info['actor_clip_frac']).item(), frame)
         self.writer.add_scalar('info/kl', torch_ext.mean_list(train_info['kl']).item(), frame)
         return
+    
+    def recreate_environment(self):
+        """Recreate the environment with new task_env_count configuration"""
+        if self.recreate_task_env_count is None:
+            print("Warning: recreate_task_env_count not specified, skipping environment recreation")
+            return
+            
+        print(f"Recreating environment at step {self.global_steps} with task_env_count: {self.recreate_task_env_count}")
+        
+        # Store current environment configuration
+        current_cfg = self.vec_env.env.cfg.copy()
+        
+        # Update task_env_count in the configuration
+        current_cfg["env"]["taskEnvCount"] = self.recreate_task_env_count
+        
+        # Calculate new total number of environments
+        new_num_envs = sum(self.recreate_task_env_count)
+        current_cfg["env"]["numEnvs"] = new_num_envs
+        
+        # Update agent's environment-related attributes
+        self.num_actors = new_num_envs
+        self.batch_size_envs = new_num_envs
+        
+        # Recreate the environment using the existing environment creator
+        from isaacgymenvs.utils.rlgames_utils import get_rlgames_env_creator
+        from isaacgymenvs.utils.reformat import omegaconf_to_dict
+        
+        cfg_dict = omegaconf_to_dict(current_cfg)
+        create_rlgpu_env = get_rlgames_env_creator(
+            seed=self.seed,
+            task_config=cfg_dict,
+            task_name=cfg_dict["name"],
+            sim_device=self.sim_device,
+            rl_device=self.rl_device,
+            graphics_device_id=self.graphics_device_id,
+            headless=self.headless,
+            multi_gpu=self.multi_gpu,
+            virtual_screen_capture=False,
+            force_render=True,
+        )
+        
+        # Create new environment
+        new_vec_env = create_rlgpu_env()
+        
+        # Update the agent's environment reference
+        self.vec_env = new_vec_env
+        
+        # Reset the environment
+        self.obs = self.env_reset()
+        
+        # Update experience buffer size if needed
+        if hasattr(self, 'experience_buffer') and self.experience_buffer is not None:
+            self.experience_buffer.tensor_dict['obses'] = torch.zeros((self.horizon_length, new_num_envs) + self.obs_shape, device=self.ppo_device)
+            self.experience_buffer.tensor_dict['next_obses'] = torch.zeros_like(self.experience_buffer.tensor_dict['obses'])
+            self.experience_buffer.tensor_dict['next_values'] = torch.zeros((self.horizon_length, new_num_envs, self.value_size), device=self.ppo_device)
+        
+        # Update current frames tracking
+        self.curr_frames = new_num_envs
+        
+        print(f"Environment recreated successfully with {new_num_envs} environments")
+        self.last_recreation_step = self.global_steps
