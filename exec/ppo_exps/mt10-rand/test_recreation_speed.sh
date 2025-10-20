@@ -52,11 +52,16 @@ do
     
     # Run the command and capture timing
     start_time=$(date +%s)
+    echo "Starting training with environment recreation..."
+    echo "Look for 'Environment recreation timing breakdown:' messages in the output below:"
+    echo "========================================="
     $cmd
     end_time=$(date +%s)
     
     duration=$((end_time - start_time))
+    echo "========================================="
     echo "Test completed in $duration seconds"
+    echo "Check the output above for detailed recreation timing breakdown"
     echo "========================================="
     echo ""
 done
