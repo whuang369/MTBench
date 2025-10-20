@@ -125,6 +125,11 @@ class MTA2CAgent(A2CAgent):
 
         self.evaluation_interval = self.config.get("evaluation_interval", 1000)
 
+        # Environment recreation settings
+        self.update_distribution_steps = self.config.get('update_distribution_steps', None)
+        self.recreate_task_env_count = self.config.get('recreate_task_env_count', None)
+        self.last_recreation_step = 0
+
         self.has_value_loss = self.use_experimental_cv or not self.has_central_value
         self.algo_observer.after_init(self)
         self.actor_loss_func = actor_loss_mt
@@ -150,6 +155,11 @@ class MTA2CAgent(A2CAgent):
         update_list = self.update_list
 
         step_time = 0.0
+
+        # Check if we need to recreate the environment
+        if (self.update_distribution_steps is not None and 
+            self.global_steps - self.last_recreation_step >= self.update_distribution_steps):
+            self.recreate_environment()
 
         for n in range(self.horizon_length):
             if self.use_action_masks:
@@ -650,6 +660,98 @@ class MTA2CAgent(A2CAgent):
         #         total_count += env_count
 
         return batch_dict['step_time'], play_time, update_time, total_time, a_losses, c_losses, b_losses, entropies, kls, last_lr, lr_mul
+
+    def recreate_environment(self):
+        """Recreate the environment with new task_env_count configuration"""
+        if self.recreate_task_env_count is None:
+            print("Warning: recreate_task_env_count not specified, skipping environment recreation")
+            return
+            
+        print(f"Recreating environment at step {self.global_steps} with task_env_count: {self.recreate_task_env_count}")
+        
+        # Start timing
+        recreation_start_time = time.time()
+        
+        # Store current environment configuration
+        config_start_time = time.time()
+        current_cfg = self.vec_env.env.cfg.copy()
+        config_time = time.time() - config_start_time
+        
+        # Update task_env_count in the configuration
+        current_cfg["env"]["taskEnvCount"] = self.recreate_task_env_count
+        
+        # Calculate new total number of environments
+        new_num_envs = sum(self.recreate_task_env_count)
+        current_cfg["env"]["numEnvs"] = new_num_envs
+        
+        # Update agent's environment-related attributes
+        self.num_actors = new_num_envs
+        self.batch_size_envs = new_num_envs
+        
+        # Recreate the environment using the existing environment creator
+        env_creation_start_time = time.time()
+        from isaacgymenvs.utils.rlgames_utils import get_rlgames_env_creator
+        from isaacgymenvs.utils.reformat import omegaconf_to_dict
+        
+        cfg_dict = omegaconf_to_dict(current_cfg)
+        create_rlgpu_env = get_rlgames_env_creator(
+            seed=self.seed,
+            task_config=cfg_dict,
+            task_name=cfg_dict["name"],
+            sim_device=self.sim_device,
+            rl_device=self.rl_device,
+            graphics_device_id=self.graphics_device_id,
+            headless=self.headless,
+            multi_gpu=self.multi_gpu,
+            virtual_screen_capture=False,
+            force_render=True,
+        )
+        
+        # Create new environment
+        new_vec_env = create_rlgpu_env()
+        env_creation_time = time.time() - env_creation_start_time
+        
+        # Update the agent's environment reference
+        reference_update_start_time = time.time()
+        self.vec_env = new_vec_env
+        
+        # Reset the environment
+        self.obs = self.env_reset()
+        reference_update_time = time.time() - reference_update_start_time
+        
+        # Update experience buffer size if needed
+        buffer_update_start_time = time.time()
+        if hasattr(self, 'experience_buffer') and self.experience_buffer is not None:
+            self.experience_buffer.tensor_dict['obses'] = torch.zeros((self.horizon_length, new_num_envs) + self.obs_shape, device=self.ppo_device)
+            self.experience_buffer.tensor_dict['next_obses'] = torch.zeros_like(self.experience_buffer.tensor_dict['obses'])
+            self.experience_buffer.tensor_dict['next_values'] = torch.zeros((self.horizon_length, new_num_envs, self.value_size), device=self.ppo_device)
+        buffer_update_time = time.time() - buffer_update_start_time
+        
+        # Update current frames tracking
+        self.curr_frames = new_num_envs
+        
+        # Calculate total time
+        total_recreation_time = time.time() - recreation_start_time
+        
+        # Print detailed timing information
+        print(f"Environment recreation timing breakdown:")
+        print(f"  - Config preparation: {config_time:.4f} seconds")
+        print(f"  - Environment creation: {env_creation_time:.4f} seconds")
+        print(f"  - Reference update & reset: {reference_update_time:.4f} seconds")
+        print(f"  - Buffer update: {buffer_update_time:.4f} seconds")
+        print(f"  - TOTAL RECREATION TIME: {total_recreation_time:.4f} seconds")
+        print(f"Environment recreated successfully with {new_num_envs} environments")
+        
+        # Log timing to tensorboard if writer is available
+        if hasattr(self, 'writer') and self.writer is not None:
+            self.writer.add_scalar('env_recreation/total_time', total_recreation_time, self.global_steps)
+            self.writer.add_scalar('env_recreation/config_time', config_time, self.global_steps)
+            self.writer.add_scalar('env_recreation/env_creation_time', env_creation_time, self.global_steps)
+            self.writer.add_scalar('env_recreation/reference_update_time', reference_update_time, self.global_steps)
+            self.writer.add_scalar('env_recreation/buffer_update_time', buffer_update_time, self.global_steps)
+            self.writer.add_scalar('env_recreation/num_envs', new_num_envs, self.global_steps)
+        
+        self.last_recreation_step = self.global_steps
 
 
 class PCGradA2CAgent(MTA2CAgent):
