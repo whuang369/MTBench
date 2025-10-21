@@ -714,68 +714,13 @@ class MTA2CAgent(A2CAgent):
         
         # Store reference to old environment
         old_vec_env = self.vec_env
-        
-        # Clear experience buffer first
-        if hasattr(self, 'experience_buffer') and self.experience_buffer is not None:
-            print("Clearing experience buffer...")
-            # Clear all buffer tensors
-            for key in ['obses', 'next_obses', 'next_values', 'rewards', 'dones', 'values', 'actions', 'neglogpacs', 'mu', 'sigma']:
-                if key in self.experience_buffer.tensor_dict:
-                    del self.experience_buffer.tensor_dict[key]
-            
-            # Clear GPU cache after buffer cleanup
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        
-        # Properly destroy the old environment
-        try:
-            # Call close/cleanup methods if they exist
-            if hasattr(old_vec_env, 'close'):
-                old_vec_env.close()
-            if hasattr(old_vec_env, 'env') and hasattr(old_vec_env.env, 'close'):
-                old_vec_env.env.close()
-            if hasattr(old_vec_env, 'env') and hasattr(old_vec_env.env, 'gym'):
-                # Destroy Isaac Gym simulation
-                if hasattr(old_vec_env.env.gym, 'destroy_sim'):
-                    old_vec_env.env.gym.destroy_sim(old_vec_env.env.sim)
-                if hasattr(old_vec_env.env.gym, 'destroy_viewer'):
-                    old_vec_env.env.gym.destroy_viewer(old_vec_env.env.viewer)
-            
-            # Delete the environment object
-            del old_vec_env
-            
-            # Force garbage collection
-            import gc
-            gc.collect()
-            
-            # Clear GPU cache
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                torch.cuda.synchronize()  # Wait for all operations to complete
-            
-            print("Old environment destroyed successfully")
-            
-        except Exception as e:
-            print(f"Warning: Error destroying old environment: {e}")
-            # Continue anyway
-        
-        destruction_time = time.time() - destruction_start_time
-        print(f"Environment destruction took {destruction_time:.4f} seconds")
-        
-        # Additional memory cleanup before creating new environment
-        print("Performing additional memory cleanup...")
-        import gc
+
+        old_vec_env.close()
+        del old_vec_env
+        import gc, torch
         gc.collect()
-        
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-            time.sleep(2.0)
-            torch.cuda.empty_cache()
-            # Get current GPU memory usage
-            allocated = torch.cuda.memory_allocated() / 1024**3  # GB
-            cached = torch.cuda.memory_reserved() / 1024**3  # GB
-            print(f"GPU memory after cleanup - Allocated: {allocated:.2f}GB, Cached: {cached:.2f}GB")
-        
+        torch.cuda.empty_cache()
+
         # Recreate the environment using the existing environment creator
         env_creation_start_time = time.time()
         from isaacgymenvs.utils.rlgames_utils import get_rlgames_env_creator

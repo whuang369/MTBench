@@ -1,0 +1,86 @@
+# Dynamic Masked Multi-Task Configuration
+name: dynamic-masked-mt10
+
+physics_engine: ${..physics_engine}
+
+# if given, will override the device setting in gym. 
+env:
+  numEnvs: ${resolve_default:4096,${...num_envs}}
+  envSpacing: 1.5
+  episodeLength: 150
+  enableDebugVis: ${...record_videos}
+
+  clipObservations: 5.0
+  clipActions: 1.0
+
+  aggregateMode: 3
+
+  actionScale: .01 # meta-world uses .01
+  resetNoise: .15
+  
+  tasks: ${...task_id}
+  taskEnvCount: ${...task_counts}
+  init_at_random_progress: ${...init_at_random_progress}
+  exemptedInitAtRandomProgressTasks: ${...exempted_tasks}
+  taskEmbedding: True
+  seed: ${...seed}
+  cameraRenderingInterval: 5000
+  cameraWidth: 1024
+  cameraHeight: 1024
+  sparse_reward: ${...sparse_reward}
+  termination_on_success: ${...termination_on_success}
+  reward_scale: ${...reward_scale}
+  fixed: ${...fixed}
+
+  # Dynamic masking configuration
+  dynamic_masking:
+    enabled: true
+    mixture_update_frequency: 1000  # Update every 1000 steps
+    mixture_strategy: "performance_based"  # Options: performance_based, uniform, curriculum, random
+    performance_threshold: 0.5
+    min_active_envs: 1
+    max_active_envs: 10
+    
+    # Performance-based strategy parameters
+    performance_based:
+      success_rate_threshold: 0.5
+      adaptation_rate: 0.1
+      min_weight: 0.1
+      max_weight: 5.0
+    
+    # Curriculum strategy parameters
+    curriculum:
+      easy_tasks: [0, 1, 2, 3, 4]
+      hard_tasks: [5, 6, 7, 8, 9]
+      transition_steps: 50000
+      initial_easy_weight: 1.0
+      initial_hard_weight: 0.5
+      final_easy_weight: 0.2
+      final_hard_weight: 1.0
+
+# set to True if you use camera sensors in the environment
+enableCameraSensors: True
+
+sim:
+  dt: 0.01667 # 1/60
+  substeps: 2
+  up_axis: "z"
+  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
+  gravity: [0.0, 0.0, -9.81]
+  physx:
+    num_threads: ${....num_threads}
+    solver_type: ${....solver_type}
+    use_gpu: ${contains:"cuda",${....sim_device}}
+    num_position_iterations: 8
+    num_velocity_iterations: 1
+    contact_offset: 0.005
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 1000.0
+    default_buffer_size_multiplier: 10.0
+    max_gpu_contact_pairs: 1048576
+    num_subscenes: ${....num_subscenes}
+    contact_collection: 0
+
+task:
+  randomize: False
