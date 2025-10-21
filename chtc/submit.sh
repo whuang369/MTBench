@@ -2,7 +2,7 @@ results_dir=results/${1}
 log_dir=logs/${1}
 commands_file=commands/${1}.txt
 commands_file_tmp=commands/${1}_tmp.txt
-sed 's/ /*/g' "$commands_file" > "$commands_file_tmp"
+tr ' \n' '*@' < "$commands_file" > "$commands_file_tmp"
 
 mkdir -p ${results_dir}
 mkdir -p ${log_dir}
