@@ -41,7 +41,6 @@ def make(
     # reuse existing config
     else:
         cfg_dict = omegaconf_to_dict(cfg.task)
-    start_time = time.time()
     create_rlgpu_env = get_rlgames_env_creator(
         seed=seed,
         task_config=cfg_dict,
@@ -54,7 +53,4 @@ def make(
         virtual_screen_capture=virtual_screen_capture,
         force_render=force_render,
     )
-    end_time = time.time()
-    for i in range(100):
-        print(end_time - start_time)
     return create_rlgpu_env()

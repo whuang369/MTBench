@@ -670,12 +670,13 @@ class MTA2CAgent(A2CAgent):
 
         return batch_dict['step_time'], play_time, update_time, total_time, a_losses, c_losses, b_losses, entropies, kls, last_lr, lr_mul
 
+
     def recreate_environment(self):
         """Recreate the environment with exactly the same config as initialization"""
         print(f"Recreating environment at step {self.global_steps}")
         
-        # Store the original configuration exactly as it was initialized
-        original_cfg = self.vec_env.env.cfg.copy()
+        # Use the saved original config that was used for initial environment creation
+        original_cfg = self.vec_env.env._original_config
         
         # Recreate the environment using the exact same configuration
         import isaacgymenvs
@@ -692,6 +693,8 @@ class MTA2CAgent(A2CAgent):
             original_cfg.force_render,
             original_cfg,
         )
+        new_envs._freeze_rand_vec = True
+        new_envs._original_config = original_cfg
         
         # Update the agent's environment reference
         self.vec_env = new_envs

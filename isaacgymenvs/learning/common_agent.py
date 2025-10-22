@@ -571,16 +571,16 @@ class CommonAgent(a2c_continuous.A2CAgent):
         # Recreate the environment using the exact same configuration
         import isaacgymenvs
         new_envs = isaacgymenvs.make(
-            original_cfg.seed,
-            original_cfg.task_name,
-            original_cfg.task.env.numEnvs,
-            original_cfg.sim_device,
-            original_cfg.rl_device,
-            original_cfg.graphics_device_id,
-            original_cfg.headless,
-            original_cfg.multi_gpu,
-            original_cfg.capture_video,
-            original_cfg.force_render,
+            original_cfg["seed"],
+            original_cfg["task_name"],
+            original_cfg["task"]["env"]["numEnvs"],
+            original_cfg["sim_device"],
+            original_cfg["rl_device"],
+            original_cfg["graphics_device_id"],
+            original_cfg["headless"],
+            original_cfg["multi_gpu"],
+            original_cfg["capture_video"],
+            original_cfg["force_render"],
             original_cfg,
         )
         
@@ -590,4 +590,4 @@ class CommonAgent(a2c_continuous.A2CAgent):
         # Reset the environment
         self.obs = self.env_reset()
         
-        print(f"Environment recreated successfully with {original_cfg.task.env.numEnvs} environments")
+        print(f"Environment recreated successfully with {original_cfg['task']['env']['numEnvs']} environments")

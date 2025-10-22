@@ -160,6 +160,8 @@ def launch_rlg_hydra(cfg: DictConfig):
             **kwargs,
         )
         envs._freeze_rand_vec = True
+        # Save the original config for environment recreation
+        envs._original_config = cfg
         if cfg.capture_video:
             envs.is_vector_env = True
             envs = gym.wrappers.RecordVideo(
