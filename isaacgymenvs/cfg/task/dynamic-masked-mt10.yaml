@@ -3,7 +3,7 @@ name: dynamic_masked_mt10
 
 physics_engine: ${..physics_engine}
 
-# if given, will override the device setting in gym. 
+# if given, will override the device setting in gym.
 env:
   numEnvs: ${resolve_default:4096,${...num_envs}}
   envSpacing: 1.5
@@ -17,7 +17,7 @@ env:
 
   actionScale: .01 # meta-world uses .01
   resetNoise: .15
-  
+
   tasks: ${...task_id}
   taskEnvCount: ${...task_counts}
   init_at_random_progress: ${...init_at_random_progress}
@@ -40,14 +40,14 @@ env:
     performance_threshold: 0.5
     min_active_envs: 1
     max_active_envs: 10
-    
+
     # Performance-based strategy parameters
     performance_based:
       success_rate_threshold: 0.5
       adaptation_rate: 0.1
       min_weight: 0.1
       max_weight: 5.0
-    
+
     # Curriculum strategy parameters
     curriculum:
       easy_tasks: [0, 1, 2, 3, 4]

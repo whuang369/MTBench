@@ -22,6 +22,8 @@ from rl_games.algos_torch.a2c_continuous import A2CAgent
 from rl_games.common import datasets
 from isaacgymenvs.learning.mt_models import PerTaskRewardNormalizer
 
+import isaacgymenvs
+
 from .grad_mani import pcgrad_backward, cagrad_backward
 
 def swap_and_flatten01(arr):
@@ -669,154 +671,35 @@ class MTA2CAgent(A2CAgent):
         return batch_dict['step_time'], play_time, update_time, total_time, a_losses, c_losses, b_losses, entropies, kls, last_lr, lr_mul
 
     def recreate_environment(self):
-        """Recreate the environment with new task_env_count configuration"""
-        if self.recreate_task_env_count is None:
-            print("Warning: recreate_task_env_count not specified, skipping environment recreation")
-            return
-            
-        print(f"Recreating environment at step {self.global_steps} with task_env_count: {self.recreate_task_env_count}")
+        """Recreate the environment with exactly the same config as initialization"""
+        print(f"Recreating environment at step {self.global_steps}")
         
-        # Start timing
-        recreation_start_time = time.time()
+        # Store the original configuration exactly as it was initialized
+        original_cfg = self.vec_env.env.cfg.copy()
         
-        # Store current environment configuration
-        config_start_time = time.time()
-        current_cfg = self.vec_env.env.cfg.copy()
-        config_time = time.time() - config_start_time
-        
-        # Update task_env_count in the configuration
-        current_cfg["env"]["taskEnvCount"] = self.recreate_task_env_count
-        
-        # Calculate new total number of environments
-        new_num_envs = sum(self.recreate_task_env_count)
-        current_cfg["env"]["numEnvs"] = new_num_envs
-        
-        # Check if we're reducing the number of environments (safer)
-        current_num_envs = self.vec_env.env.num_envs
-        if new_num_envs > current_num_envs:
-            print(f"Warning: Increasing environment count from {current_num_envs} to {new_num_envs}")
-            print("This may cause GPU memory issues. Consider reducing the new environment count.")
-        
-        # Safety check: prevent creating too many environments
-        # max_safe_envs = 2048  # Conservative limit
-        # if new_num_envs > max_safe_envs:
-        #     print(f"Error: Requested {new_num_envs} environments exceeds safe limit of {max_safe_envs}")
-        #     print("Skipping environment recreation to prevent segfault.")
-        #     return
-        
-        # Update agent's environment-related attributes
-        self.num_actors = new_num_envs
-        self.batch_size_envs = new_num_envs
-        
-        # PROPERLY DESTROY OLD ENVIRONMENT FIRST
-        print("Destroying old environment to free GPU memory...")
-        destruction_start_time = time.time()
-        
-        # Store reference to old environment
-        old_vec_env = self.vec_env
-
-        old_vec_env.close()
-        del old_vec_env
-        import gc, torch
-        gc.collect()
-        torch.cuda.empty_cache()
-
-        # Recreate the environment using the existing environment creator
-        env_creation_start_time = time.time()
-        from isaacgymenvs.utils.rlgames_utils import get_rlgames_env_creator
-        from isaacgymenvs.utils.reformat import omegaconf_to_dict
-        
-        cfg_dict = omegaconf_to_dict(current_cfg)
-
-        print("Free mem before create:", torch.cuda.mem_get_info())
-        
-        try:
-            print(f"Creating new environment with {new_num_envs} environments...")
-            create_rlgpu_env = get_rlgames_env_creator(
-                seed=current_cfg.get("seed", 42),
-                task_config=cfg_dict,
-                task_name=cfg_dict["name"],
-                sim_device=current_cfg.get("sim_device", "cuda:0"),
-                rl_device=current_cfg.get("rl_device", "cuda:0"),
-                graphics_device_id=current_cfg.get("graphics_device_id", 0),
-                headless=current_cfg.get("headless", True),
-                multi_gpu=current_cfg.get("multi_gpu", False),
-                virtual_screen_capture=False,
-                force_render=True,
-            )
-            
-            # Create new environment
-            new_vec_env = create_rlgpu_env()
-            env_creation_time = time.time() - env_creation_start_time
-            print(f"New environment created successfully in {env_creation_time:.4f} seconds")
-            
-        except Exception as e:
-            print(f"Error creating new environment: {e}")
-            print("Falling back to original environment configuration")
-            # Restore original configuration
-            current_cfg["env"]["taskEnvCount"] = self.vec_env.env.cfg["env"]["taskEnvCount"]
-            current_cfg["env"]["numEnvs"] = self.vec_env.env.cfg["env"]["numEnvs"]
-            self.num_actors = self.vec_env.env.num_envs
-            self.batch_size_envs = self.vec_env.env.num_envs
-            return
+        # Recreate the environment using the exact same configuration
+        import isaacgymenvs
+        new_envs = isaacgymenvs.make(
+            original_cfg.seed,
+            original_cfg.task_name,
+            original_cfg.task.env.numEnvs,
+            original_cfg.sim_device,
+            original_cfg.rl_device,
+            original_cfg.graphics_device_id,
+            original_cfg.headless,
+            original_cfg.multi_gpu,
+            original_cfg.capture_video,
+            original_cfg.force_render,
+            original_cfg,
+        )
         
         # Update the agent's environment reference
-        reference_update_start_time = time.time()
-        self.vec_env = new_vec_env
+        self.vec_env = new_envs
         
         # Reset the environment
         self.obs = self.env_reset()
-        reference_update_time = time.time() - reference_update_start_time
         
-        # Update experience buffer size if needed
-        buffer_update_start_time = time.time()
-        if hasattr(self, 'experience_buffer') and self.experience_buffer is not None:
-            print("Recreating experience buffer...")
-            # Create new buffer tensors
-            self.experience_buffer.tensor_dict['obses'] = torch.zeros((self.horizon_length, new_num_envs) + self.obs_shape, device=self.ppo_device)
-            self.experience_buffer.tensor_dict['next_obses'] = torch.zeros_like(self.experience_buffer.tensor_dict['obses'])
-            self.experience_buffer.tensor_dict['next_values'] = torch.zeros((self.horizon_length, new_num_envs, self.value_size), device=self.ppo_device)
-            self.experience_buffer.tensor_dict['rewards'] = torch.zeros((self.horizon_length, new_num_envs, 1), device=self.ppo_device)
-            self.experience_buffer.tensor_dict['dones'] = torch.zeros((self.horizon_length, new_num_envs), device=self.ppo_device)
-            self.experience_buffer.tensor_dict['values'] = torch.zeros((self.horizon_length, new_num_envs, self.value_size), device=self.ppo_device)
-            self.experience_buffer.tensor_dict['actions'] = torch.zeros((self.horizon_length, new_num_envs, self.actions_num), device=self.ppo_device)
-            self.experience_buffer.tensor_dict['neglogpacs'] = torch.zeros((self.horizon_length, new_num_envs), device=self.ppo_device)
-            self.experience_buffer.tensor_dict['mu'] = torch.zeros((self.horizon_length, new_num_envs, self.actions_num), device=self.ppo_device)
-            self.experience_buffer.tensor_dict['sigma'] = torch.zeros((self.horizon_length, new_num_envs, self.actions_num), device=self.ppo_device)
-            
-            # Clear GPU cache after buffer recreation
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                
-        buffer_update_time = time.time() - buffer_update_start_time
-        
-        # Update current frames tracking
-        self.curr_frames = new_num_envs
-        
-        # Calculate total time
-        total_recreation_time = time.time() - recreation_start_time
-        
-        # Print detailed timing information
-        print(f"Environment recreation timing breakdown:")
-        print(f"  - Config preparation: {config_time:.4f} seconds")
-        print(f"  - Environment destruction: {destruction_time:.4f} seconds")
-        print(f"  - Environment creation: {env_creation_time:.4f} seconds")
-        print(f"  - Reference update & reset: {reference_update_time:.4f} seconds")
-        print(f"  - Buffer update: {buffer_update_time:.4f} seconds")
-        print(f"  - TOTAL RECREATION TIME: {total_recreation_time:.4f} seconds")
-        print(f"Environment recreated successfully with {new_num_envs} environments")
-        
-        # Log timing to tensorboard if writer is available
-        if hasattr(self, 'writer') and self.writer is not None:
-            self.writer.add_scalar('env_recreation/total_time', total_recreation_time, self.global_steps)
-            self.writer.add_scalar('env_recreation/config_time', config_time, self.global_steps)
-            self.writer.add_scalar('env_recreation/destruction_time', destruction_time, self.global_steps)
-            self.writer.add_scalar('env_recreation/env_creation_time', env_creation_time, self.global_steps)
-            self.writer.add_scalar('env_recreation/reference_update_time', reference_update_time, self.global_steps)
-            self.writer.add_scalar('env_recreation/buffer_update_time', buffer_update_time, self.global_steps)
-            self.writer.add_scalar('env_recreation/num_envs', new_num_envs, self.global_steps)
-        
-        self.last_recreation_step = self.global_steps
+        print(f"Environment recreated successfully with {original_cfg.task.env.numEnvs} environments")
 
 
 class PCGradA2CAgent(MTA2CAgent):

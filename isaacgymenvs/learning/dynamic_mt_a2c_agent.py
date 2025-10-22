@@ -1,8 +1,7 @@
 # isaacgymenvs/learning/dynamic_mt_a2c_agent.py
+from .mt_a2c_agent import MTA2CAgent
 import torch
 import time
-from .mt_a2c_agent import MTA2CAgent
-from . import a2c_common
 
 class DynamicMTA2CAgent(MTA2CAgent):
     """
@@ -30,6 +29,42 @@ class DynamicMTA2CAgent(MTA2CAgent):
         
         print(f"Initialized DynamicMTA2CAgent with mixture strategy: {self.mixture_strategy}")
         print(f"Mixture update frequency: {self.mixture_update_frequency} steps")
+    
+    def init(self, env, seed=None):
+        """Override init to replace environment with dynamic masked version"""
+        # Check if we need to replace the environment with dynamic masked version
+        if hasattr(env, 'env') and hasattr(env.env, 'cfg'):
+            # Check if this is a Franka environment that supports dynamic masking
+            if 'Franka' in str(type(env.env)):
+                print("Replacing environment with dynamic masked version...")
+                from isaacgymenvs.tasks.franka.vec_task.dynamic_masked_franka_base import DynamicMaskedFrankaEnvV2
+                
+                # Create dynamic masked environment
+                dynamic_env = DynamicMaskedFrankaEnvV2(
+                    cfg=env.env.cfg,
+                    rl_device=env.env.rl_device,
+                    sim_device=env.env.sim_device,
+                    graphics_device_id=env.env.graphics_device_id,
+                    headless=env.env.headless,
+                    virtual_screen_capture=env.env.virtual_screen_capture,
+                    force_render=env.env.force_render
+                )
+                
+                # Replace the environment
+                env.env = dynamic_env
+                env.num_envs = dynamic_env.num_envs
+                env.single_observation_space = dynamic_env.single_observation_space
+                env.single_action_space = dynamic_env.single_action_space
+                env.observation_space = dynamic_env.observation_space
+                env.action_space = dynamic_env.action_space
+                
+                print(f"Dynamic masked environment created:")
+                print(f"  Total environments: {env.num_envs}")
+                print(f"  Active environments: {env.env.get_total_active_environments()}")
+                print(f"  Task distribution: {env.env.get_current_task_distribution()}")
+        
+        # Call parent init
+        super().init(env, seed)
     
     def play_steps(self):
         """Override play_steps to include dynamic mixture updates"""

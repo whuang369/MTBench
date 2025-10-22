@@ -36,6 +36,7 @@ class DynamicMaskedFrankaEnvV2(FrankaBaseEnvV2):
         cfg["env"]["taskEnvCount"] = self.extended_task_env_count
         cfg["env"]["numEnvs"] = sum(self.extended_task_env_count)
         
+        print(f"Dynamic Masked Environment: Creating 10x environments")
         print(f"Original task env counts: {self.original_task_env_count}")
         print(f"Extended task env counts (10x): {self.extended_task_env_count}")
         print(f"Total environments: {cfg['env']['numEnvs']}")
