@@ -22,6 +22,8 @@ from rl_games.algos_torch.a2c_continuous import A2CAgent
 from rl_games.common import datasets
 from isaacgymenvs.learning.mt_models import PerTaskRewardNormalizer
 
+from isaacgym import gymapi
+
 import isaacgymenvs
 
 from .grad_mani import pcgrad_backward, cagrad_backward
@@ -670,6 +672,11 @@ class MTA2CAgent(A2CAgent):
 
         return batch_dict['step_time'], play_time, update_time, total_time, a_losses, c_losses, b_losses, entropies, kls, last_lr, lr_mul
 
+    def sample_tasks(self, num_total_tasks=50):
+        """Sample which 50 training tasks to use for the current iteration and resets the environment accordingly
+        """
+        self.train_tasks = self.vec_env.env.set_meta_parameters(num_total_tasks)
+
 
     def recreate_environment(self):
         """Recreate the environment with exactly the same config as initialization"""
@@ -678,33 +685,27 @@ class MTA2CAgent(A2CAgent):
         # Use the saved original config that was used for initial environment creation
         original_cfg = self.vec_env.env._original_config
 
-        envs = self.vec_env
+        start_time = time.time()
 
-        self.vec_env.self._create_envs(envs.num_envs, envs.cfg["env"]['envSpacing'], int(np.sqrt(envs.num_envs)))
+        envs = self.vec_env.env
 
-        # Recreate the environment using the exact same configuration
-        import isaacgymenvs
-        new_envs = isaacgymenvs.make(
-            original_cfg.seed,
-            original_cfg.task_name,
-            original_cfg.task.env.numEnvs,
-            original_cfg.sim_device,
-            original_cfg.rl_device,
-            original_cfg.graphics_device_id,
-            original_cfg.headless,
-            original_cfg.multi_gpu,
-            original_cfg.capture_video,
-            original_cfg.force_render,
-            original_cfg,
-        )
-        new_envs._freeze_rand_vec = True
-        new_envs._original_config = original_cfg
-        
-        # Update the agent's environment reference
-        self.vec_env = new_envs
+        gym = gymapi.acquire_gym()
+
+        env_count = 0
+        for env in envs.envs:
+            env_count += 1
+            gym.destroy_env(env)
+
+        print (env_count)
+
+        # self.sample_tasks(num_total_tasks=10)
         
         # Reset the environment
         self.obs = self.env_reset()
+
+        end_time = time.time()
+
+        print (f"Time cost: {end_time - start_time}")
         
         print(f"Environment recreated successfully with {original_cfg.task.env.numEnvs} environments")
 
