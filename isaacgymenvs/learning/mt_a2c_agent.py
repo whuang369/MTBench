@@ -677,7 +677,11 @@ class MTA2CAgent(A2CAgent):
         
         # Use the saved original config that was used for initial environment creation
         original_cfg = self.vec_env.env._original_config
-        
+
+        envs = self.vec_env
+
+        self.vec_env.self._create_envs(envs.num_envs, envs.cfg["env"]['envSpacing'], int(np.sqrt(envs.num_envs)))
+
         # Recreate the environment using the exact same configuration
         import isaacgymenvs
         new_envs = isaacgymenvs.make(
