@@ -34,8 +34,6 @@ from isaacgymenvs.tasks.franka.vec_task import FrankaBaseEnvV2
 
 from isaacgymenvs.tasks.shadow_hand import ShadowHand
 
-from .franka.vec_task.dynamic_franka_base import DynamicTaskFrankaEnvV2
-
 
 # Mappings from strings to environments
 from collections import defaultdict
@@ -44,7 +42,6 @@ isaacgym_task_map = defaultdict(lambda: FrankaBaseEnvV2)
 isaacgym_task_map.update({
     "Cartpole": Cartpole,
     'meta-world-v2': FrankaBaseEnvV2,  # Default
-    'meta-world-v2-dynamic': DynamicTaskFrankaEnvV2,  # Dynamic version
     'go1-benchmark': LeggedRobot,
     'ShadowHand': ShadowHand,
 })

@@ -16,7 +16,7 @@ After entering the interactive job, clone this repo into your job directory and 
 ```bash
 git clone https://github.com/whuang369/MTBench
 cd MTBench
-git checkout ppo
+git checkout mask_on_successful_tasks
 ```
 
 ## Short Install

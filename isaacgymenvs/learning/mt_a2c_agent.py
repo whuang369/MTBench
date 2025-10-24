@@ -139,6 +139,10 @@ class MTA2CAgent(A2CAgent):
         self.actor_loss_func = actor_loss_mt
 
         self.global_steps = 0
+        
+        # Log initial active environments per task if masking is enabled
+        if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
+            self.log_active_envs_per_task()
 
     def restore(self, fn):
         # weights = torch.load(fn, map_location=self.device)
@@ -173,18 +177,52 @@ class MTA2CAgent(A2CAgent):
 
         for n in range(self.horizon_length):
             self.global_steps += 1
+            
+            # Update mask every 1000 steps if masking is enabled
+            if (hasattr(self.vec_env.env, 'masking_enabled') and 
+                self.vec_env.env.masking_enabled and 
+                self.global_steps % 1000 == 0):
+                self.vec_env.env.update_mask()
+                # Log number of active environments per task to wandb
+                self.log_active_envs_per_task()
+            
             if self.use_action_masks:
                 masks = self.vec_env.get_action_masks()
                 res_dict = self.get_masked_action_values(self.obs, masks)
             else:
                 res_dict = self.get_action_values(self.obs) # calls the model to sample an action (is_train=False)
-            self.experience_buffer.update_data('obses', n, self.obs['obs'])
-            self.experience_buffer.update_data('dones', n, self.dones)
+            
+            # Get environment mask if masking is enabled
+            env_mask = None
+            if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
+                env_mask = self.vec_env.env.mask
+            
+            # Only collect data from unmasked environments
+            if env_mask is not None:
+                # Get indices of unmasked environments
+                unmasked_indices = (~env_mask).nonzero(as_tuple=False).squeeze(-1)
+                
+                if len(unmasked_indices) > 0:
+                    # Only collect data from unmasked environments
+                    self.experience_buffer.update_data('obses', n, self.obs['obs'][unmasked_indices])
+                    self.experience_buffer.update_data('dones', n, self.dones[unmasked_indices])
+                    
+                    for k in update_list:
+                        self.experience_buffer.update_data(k, n, res_dict[k][unmasked_indices])
+                    
+                    if self.has_central_value:
+                        self.experience_buffer.update_data('states', n, self.obs['states'][unmasked_indices])
+                else:
+                    # If all environments are masked, skip data collection for this step
+                    pass
+            else:
+                self.experience_buffer.update_data('obses', n, self.obs['obs'])
+                self.experience_buffer.update_data('dones', n, self.dones)
 
-            for k in update_list:
-                self.experience_buffer.update_data(k, n, res_dict[k]) 
-            if self.has_central_value:
-                self.experience_buffer.update_data('states', n, self.obs['states'])
+                for k in update_list:
+                    self.experience_buffer.update_data(k, n, res_dict[k]) 
+                if self.has_central_value:
+                    self.experience_buffer.update_data('states', n, self.obs['states'])
 
             step_time_start = time.time()
             self.obs, rewards, self.dones, infos = self.env_step(res_dict['actions'])
@@ -202,7 +240,20 @@ class MTA2CAgent(A2CAgent):
                     self.dones,
                     self.all_task_indices
                 )
-            self.experience_buffer.update_data('rewards', n, shaped_rewards)
+            
+            # Only collect rewards from unmasked environments
+            if env_mask is not None:
+                # Get indices of unmasked environments
+                unmasked_indices = (~env_mask).nonzero(as_tuple=False).squeeze(-1)
+                
+                if len(unmasked_indices) > 0:
+                    # Only collect rewards from unmasked environments
+                    self.experience_buffer.update_data('rewards', n, shaped_rewards[unmasked_indices])
+                else:
+                    # If all environments are masked, skip reward collection for this step
+                    pass
+            else:
+                self.experience_buffer.update_data('rewards', n, shaped_rewards)
 
             self.current_rewards += rewards
             self.current_shaped_rewards += shaped_rewards
@@ -256,9 +307,25 @@ class MTA2CAgent(A2CAgent):
         batch_dict = self.inner_play_steps()
         # assuming `task_indices` unchanged during the time horizon length
         task_indices = self.vec_env.env.extras["task_indices"]
-        arr = task_indices.unsqueeze(0).expand(self.horizon_length, -1)
-        s = arr.size()
-        batch_dict["task_indices"] = arr.transpose(0, 1).reshape(s[0] * s[1], *s[2:]) 
+        
+        # Handle masking for task indices
+        if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
+            env_mask = self.vec_env.env.mask
+            unmasked_indices = (~env_mask).nonzero(as_tuple=False).squeeze(-1)
+            if len(unmasked_indices) > 0:
+                task_indices = task_indices[unmasked_indices]
+            else:
+                # If all environments are masked, create empty task indices
+                task_indices = torch.empty(0, device=task_indices.device, dtype=task_indices.dtype)
+        
+        if len(task_indices) > 0:
+            arr = task_indices.unsqueeze(0).expand(self.horizon_length, -1)
+            s = arr.size()
+            batch_dict["task_indices"] = arr.transpose(0, 1).reshape(s[0] * s[1], *s[2:]) 
+        else:
+            # If no unmasked environments, create empty task indices
+            batch_dict["task_indices"] = torch.empty(0, device=task_indices.device, dtype=task_indices.dtype)
+        
         return batch_dict
     
     def prepare_dataset(self, batch_dict):
@@ -273,6 +340,26 @@ class MTA2CAgent(A2CAgent):
         rnn_states = batch_dict.get('rnn_states', None)
         rnn_masks = batch_dict.get('rnn_masks', None)
         task_indices = batch_dict["task_indices"]
+
+        # Handle case where all environments are masked
+        if len(obses) == 0:
+            # Create empty dataset entries
+            dataset_dict = {}
+            dataset_dict['old_values'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['old_logp_actions'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['advantages'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['returns'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['actions'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['obs'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['dones'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['rnn_states'] = None
+            dataset_dict['rnn_masks'] = None
+            dataset_dict['mu'] = torch.empty(0, device=self.ppo_device)
+            dataset_dict['sigma'] = torch.empty(0, device=self.ppo_device)
+            
+            self.dataset.update_values_dict(dataset_dict)
+            self.dataset.values_dict["task_indices"] = torch.empty(0, device=self.ppo_device)
+            return
 
         advantages = returns - values
 
@@ -580,6 +667,47 @@ class MTA2CAgent(A2CAgent):
 
         return eval_metrics
 
+    def log_active_envs_per_task(self):
+        """Log the number of active environments per task to wandb."""
+        if not (hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled):
+            return
+            
+        env_mask = self.vec_env.env.mask
+        task_indices = self.vec_env.env.extras["task_indices"]
+        ordered_task_names = self.vec_env.env.extras["ordered_task_names"]
+        
+        # Count active environments per task
+        active_envs_per_task = {}
+        for task_idx in torch.unique(task_indices):
+            task_name = ordered_task_names[task_idx.item()]
+            task_mask = (task_indices == task_idx)
+            active_mask = ~env_mask  # unmasked environments
+            active_count = (task_mask & active_mask).sum().item()
+            active_envs_per_task[f"active_envs/{task_name}"] = active_count
+        
+        # Log to wandb
+        if hasattr(self, 'writer') and self.writer is not None:
+            self.writer.log(active_envs_per_task, step=self.global_steps)
+        
+        # Calculate total active environments
+        total_active = sum(active_envs_per_task.values())
+        
+        # Log total active environments
+        if hasattr(self, 'writer') and self.writer is not None:
+            self.writer.log({"active_envs/total_active": total_active}, step=self.global_steps)
+        
+        # Log the configuration from the config file
+        if hasattr(self.vec_env.env, 'num_envs_per_task'):
+            config_envs = self.vec_env.env.num_envs_per_task
+            config_dict = {}
+            for i, count in enumerate(config_envs):
+                if i < len(ordered_task_names):
+                    task_name = ordered_task_names[i]
+                    config_dict[f"config_envs/{task_name}"] = count
+            
+            if hasattr(self, 'writer') and self.writer is not None:
+                self.writer.log(config_dict, step=self.global_steps)
+
     def train_epoch(self):
         # even though it is PPO like
         # the algorithm does not update on the same batch of data more than once
@@ -696,7 +824,14 @@ class MTA2CAgent(A2CAgent):
             env_count += 1
             gym.destroy_env(env)
 
-        print (env_count)
+        # gym.destroy_sim(self.vec_env.sim)
+
+        gym.destroy_sim(self.vec_env.env.sim)
+
+
+        torch.cuda.synchronize()
+
+        self.vec_env.env.create_sim()
 
         # self.sample_tasks(num_total_tasks=10)
         

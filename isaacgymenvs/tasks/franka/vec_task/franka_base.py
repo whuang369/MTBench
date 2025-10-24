@@ -568,6 +568,13 @@ class FrankaBaseEnvV2(VecTask):
 
         self.cumulatives = defaultdict(lambda: torch.zeros(self.num_envs, device=self.device))
 
+        # Initialize environment masking
+        self.masking_enabled = self.cfg["env"].get("environment_masking", {}).get("enabled", False)
+        if self.masking_enabled:
+            self.mask = torch.ones(self.num_envs, device=self.device, dtype=torch.bool)  # 1 means don't collect data, 0 means collect data
+            self.num_envs_per_task = self.cfg["env"].get("environment_masking", {}).get("num_envs_per_task", [])
+            self.update_mask()
+
         if self.debug_viz:
             self.camera_frames = []
 
@@ -920,5 +927,34 @@ class FrankaBaseEnvV2(VecTask):
         else:
             self.last_rand_vecs[:] = self.all_train_tasks[task_indices[0]]
             return [task_indices[0]]
+
+    def update_mask(self):
+        """Update the environment mask based on num_envs_per_task configuration.
+        Sets mask[i] = 1 (don't collect data) for environments that should be masked,
+        and mask[i] = 0 (collect data) for environments that should be active.
+        """
+        if not self.masking_enabled:
+            return
+            
+        # Start with all environments masked (don't collect data)
+        self.mask.fill_(True)
+        
+        # Get the current num_envs_per_task from config
+        num_envs_per_task = self.cfg["env"].get("environment_masking", {}).get("num_envs_per_task", [])
+        
+        if not num_envs_per_task:
+            return
+            
+        # Calculate which environments should be active based on num_envs_per_task
+        env_idx = 0
+        for task_idx, num_active_envs in enumerate(num_envs_per_task):
+            if task_idx < len(self.task_idx):
+                # Find environments for this task
+                task_env_count = self.task_env_count[task_idx]
+                # Activate the first num_active_envs environments for this task
+                for i in range(min(num_active_envs, task_env_count)):
+                    if env_idx + i < self.num_envs:
+                        self.mask[env_idx + i] = False  # 0 means collect data
+                env_idx += task_env_count
 
     ##########################################################################################
