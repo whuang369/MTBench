@@ -32,8 +32,8 @@ env:
   reward_scale: ${...reward_scale}
   fixed: ${...fixed}
 
-  # Dynamic task distribution options
-  dynamic_task_distribution: ${..dynamic_task_distribution}
+  # Environment masking options
+  environment_masking: ${...environment_masking}
 
 # set to True if you use camera sensors in the environment
 enableCameraSensors: True

@@ -142,6 +142,8 @@ class MTA2CAgent(A2CAgent):
         
         # Log initial active environments per task if masking is enabled
         if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
+            # Add env_ids to tensor list for gradient masking
+            self.tensor_list.append('env_ids')
             self.log_active_envs_per_task()
 
     def restore(self, fn):
@@ -166,14 +168,7 @@ class MTA2CAgent(A2CAgent):
 
         step_time = 0.0
 
-        # Check if we need to recreate the environment
-        if (self.update_distribution_steps is not None and 
-            self.global_steps - self.last_recreation_step >= self.update_distribution_steps):
-            self.recreate_environment()
-            for i in range(100):
-                print("correct!")
-        else:
-            self.recreate_environment()
+        # Environment recreation calls removed
 
         for n in range(self.horizon_length):
             self.global_steps += 1
@@ -197,32 +192,18 @@ class MTA2CAgent(A2CAgent):
             if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
                 env_mask = self.vec_env.env.mask
             
-            # Only collect data from unmasked environments
-            if env_mask is not None:
-                # Get indices of unmasked environments
-                unmasked_indices = (~env_mask).nonzero(as_tuple=False).squeeze(-1)
-                
-                if len(unmasked_indices) > 0:
-                    # Only collect data from unmasked environments
-                    self.experience_buffer.update_data('obses', n, self.obs['obs'][unmasked_indices])
-                    self.experience_buffer.update_data('dones', n, self.dones[unmasked_indices])
-                    
-                    for k in update_list:
-                        self.experience_buffer.update_data(k, n, res_dict[k][unmasked_indices])
-                    
-                    if self.has_central_value:
-                        self.experience_buffer.update_data('states', n, self.obs['states'][unmasked_indices])
-                else:
-                    # If all environments are masked, skip data collection for this step
-                    pass
-            else:
-                self.experience_buffer.update_data('obses', n, self.obs['obs'])
-                self.experience_buffer.update_data('dones', n, self.dones)
+            self.experience_buffer.update_data('obses', n, self.obs['obs'])
+            self.experience_buffer.update_data('dones', n, self.dones)
 
-                for k in update_list:
-                    self.experience_buffer.update_data(k, n, res_dict[k]) 
-                if self.has_central_value:
-                    self.experience_buffer.update_data('states', n, self.obs['states'])
+            for k in update_list:
+                self.experience_buffer.update_data(k, n, res_dict[k]) 
+            if self.has_central_value:
+                self.experience_buffer.update_data('states', n, self.obs['states'])
+            
+            # Store environment IDs for gradient masking
+            if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
+                env_ids = torch.arange(self.num_envs, device=self.device)
+                self.experience_buffer.update_data('env_ids', n, env_ids)
 
             step_time_start = time.time()
             self.obs, rewards, self.dones, infos = self.env_step(res_dict['actions'])
@@ -241,19 +222,7 @@ class MTA2CAgent(A2CAgent):
                     self.all_task_indices
                 )
             
-            # Only collect rewards from unmasked environments
-            if env_mask is not None:
-                # Get indices of unmasked environments
-                unmasked_indices = (~env_mask).nonzero(as_tuple=False).squeeze(-1)
-                
-                if len(unmasked_indices) > 0:
-                    # Only collect rewards from unmasked environments
-                    self.experience_buffer.update_data('rewards', n, shaped_rewards[unmasked_indices])
-                else:
-                    # If all environments are masked, skip reward collection for this step
-                    pass
-            else:
-                self.experience_buffer.update_data('rewards', n, shaped_rewards)
+            self.experience_buffer.update_data('rewards', n, shaped_rewards)
 
             self.current_rewards += rewards
             self.current_shaped_rewards += shaped_rewards
@@ -308,23 +277,9 @@ class MTA2CAgent(A2CAgent):
         # assuming `task_indices` unchanged during the time horizon length
         task_indices = self.vec_env.env.extras["task_indices"]
         
-        # Handle masking for task indices
-        if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
-            env_mask = self.vec_env.env.mask
-            unmasked_indices = (~env_mask).nonzero(as_tuple=False).squeeze(-1)
-            if len(unmasked_indices) > 0:
-                task_indices = task_indices[unmasked_indices]
-            else:
-                # If all environments are masked, create empty task indices
-                task_indices = torch.empty(0, device=task_indices.device, dtype=task_indices.dtype)
-        
-        if len(task_indices) > 0:
-            arr = task_indices.unsqueeze(0).expand(self.horizon_length, -1)
-            s = arr.size()
-            batch_dict["task_indices"] = arr.transpose(0, 1).reshape(s[0] * s[1], *s[2:]) 
-        else:
-            # If no unmasked environments, create empty task indices
-            batch_dict["task_indices"] = torch.empty(0, device=task_indices.device, dtype=task_indices.dtype)
+        arr = task_indices.unsqueeze(0).expand(self.horizon_length, -1)
+        s = arr.size()
+        batch_dict["task_indices"] = arr.transpose(0, 1).reshape(s[0] * s[1], *s[2:])
         
         return batch_dict
     
@@ -341,25 +296,6 @@ class MTA2CAgent(A2CAgent):
         rnn_masks = batch_dict.get('rnn_masks', None)
         task_indices = batch_dict["task_indices"]
 
-        # Handle case where all environments are masked
-        if len(obses) == 0:
-            # Create empty dataset entries
-            dataset_dict = {}
-            dataset_dict['old_values'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['old_logp_actions'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['advantages'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['returns'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['actions'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['obs'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['dones'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['rnn_states'] = None
-            dataset_dict['rnn_masks'] = None
-            dataset_dict['mu'] = torch.empty(0, device=self.ppo_device)
-            dataset_dict['sigma'] = torch.empty(0, device=self.ppo_device)
-            
-            self.dataset.update_values_dict(dataset_dict)
-            self.dataset.values_dict["task_indices"] = torch.empty(0, device=self.ppo_device)
-            return
 
         advantages = returns - values
 
@@ -528,10 +464,17 @@ class MTA2CAgent(A2CAgent):
             mu = res_dict['mus']
             sigma = res_dict['sigmas']
 
+            # Get gradient mask based on environment IDs
+            gradient_mask = self.get_gradient_mask_from_env_ids(input_dict.get('env_ids', None), len(advantage))
+
             a_loss = self.actor_loss_func(old_action_log_probs_batch, action_log_probs, advantage, self.ppo, curr_e_clip, task_indices)
+            # Apply mask to actor loss
+            a_loss = a_loss * gradient_mask
 
             if self.has_value_loss:
                 c_loss = common_losses.critic_loss(self.model, value_preds_batch, values, curr_e_clip, return_batch, self.clip_value).squeeze(-1)
+                # Apply mask to critic loss
+                c_loss = c_loss * gradient_mask
             else:
                 c_loss = torch.zeros(1, device=self.ppo_device)
             if self.bound_loss_type == 'regularisation':
@@ -540,6 +483,8 @@ class MTA2CAgent(A2CAgent):
                 b_loss = self.bound_loss(mu)
             else:
                 b_loss = torch.zeros(1, device=self.ppo_device)
+            # Apply mask to bound loss
+            b_loss = b_loss * gradient_mask
 
             loss = a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
 
@@ -667,6 +612,26 @@ class MTA2CAgent(A2CAgent):
 
         return eval_metrics
 
+    def get_gradient_mask_from_env_ids(self, env_ids, batch_size):
+        """Get mask for gradient calculation based on environment IDs and current mask."""
+        if not (hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled):
+            # If masking is not enabled, return all ones (no masking)
+            return torch.ones(batch_size, device=self.ppo_device)
+        
+        if env_ids is None:
+            # If no env_ids provided, return all ones (no masking)
+            return torch.ones(batch_size, device=self.ppo_device)
+        
+        # Get the current environment mask
+        env_mask = self.vec_env.env.mask
+        
+        # Create gradient mask based on environment IDs
+        # env_ids contains the environment indices for each sample in the batch
+        # We want to mask out samples from masked environments
+        gradient_mask = (~env_mask[env_ids]).float()  # 1 for unmasked, 0 for masked
+        
+        return gradient_mask
+
     def log_active_envs_per_task(self):
         """Log the number of active environments per task to wandb."""
         if not (hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled):
@@ -685,28 +650,26 @@ class MTA2CAgent(A2CAgent):
             active_count = (task_mask & active_mask).sum().item()
             active_envs_per_task[f"active_envs/{task_name}"] = active_count
         
-        # Log to wandb
+        # Log to tensorboard
         if hasattr(self, 'writer') and self.writer is not None:
-            self.writer.log(active_envs_per_task, step=self.global_steps)
+            for task_name, count in active_envs_per_task.items():
+                self.writer.add_scalar(task_name, count, self.global_steps)
         
         # Calculate total active environments
         total_active = sum(active_envs_per_task.values())
         
         # Log total active environments
         if hasattr(self, 'writer') and self.writer is not None:
-            self.writer.log({"active_envs/total_active": total_active}, step=self.global_steps)
+            self.writer.add_scalar("active_envs/total_active", total_active, self.global_steps)
         
         # Log the configuration from the config file
         if hasattr(self.vec_env.env, 'num_envs_per_task'):
             config_envs = self.vec_env.env.num_envs_per_task
-            config_dict = {}
             for i, count in enumerate(config_envs):
                 if i < len(ordered_task_names):
                     task_name = ordered_task_names[i]
-                    config_dict[f"config_envs/{task_name}"] = count
-            
-            if hasattr(self, 'writer') and self.writer is not None:
-                self.writer.log(config_dict, step=self.global_steps)
+                    if hasattr(self, 'writer') and self.writer is not None:
+                        self.writer.add_scalar(f"config_envs/{task_name}", count, self.global_steps)
 
     def train_epoch(self):
         # even though it is PPO like
