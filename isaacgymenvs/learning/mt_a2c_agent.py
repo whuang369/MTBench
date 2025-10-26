@@ -418,6 +418,7 @@ class MTA2CAgent(A2CAgent):
     def backward(self, a_loss, c_loss, entropy, b_loss, task_indices):
         # this is equally weight grads from all the tasks
         loss = a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
+
         self.scaler.scale(loss.mean()).backward()
 
     def get_action_values(self, obs):
@@ -478,12 +479,9 @@ class MTA2CAgent(A2CAgent):
 
             a_loss = self.actor_loss_func(old_action_log_probs_batch, action_log_probs, advantage, self.ppo, curr_e_clip, task_indices)
             # Apply mask to actor loss
-            a_loss = a_loss * gradient_mask
 
             if self.has_value_loss:
                 c_loss = common_losses.critic_loss(self.model, value_preds_batch, values, curr_e_clip, return_batch, self.clip_value).squeeze(-1)
-                # Apply mask to critic loss
-                c_loss = c_loss * gradient_mask
             else:
                 c_loss = torch.zeros(1, device=self.ppo_device)
             if self.bound_loss_type == 'regularisation':
@@ -492,12 +490,14 @@ class MTA2CAgent(A2CAgent):
                 b_loss = self.bound_loss(mu)
             else:
                 b_loss = torch.zeros(1, device=self.ppo_device)
-            # Apply mask to bound loss
-            b_loss = b_loss * gradient_mask
 
             loss = a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
 
-        loss = loss * gradient_mask
+        if self.vec_env.env.masking_enabled:
+            a_loss = a_loss * gradient_mask
+            b_loss = b_loss * gradient_mask
+            c_loss = c_loss * gradient_mask
+            loss = loss * gradient_mask
 
         return loss, (mu, sigma, action_log_probs), (a_loss, c_loss, entropy, b_loss)
     

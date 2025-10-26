@@ -1,10 +1,10 @@
 #!/bin/bash
 for e in 24576
 do
-	task_counts=[24576]
+	task_counts=[2458,2458,2458,2458,2458,2458,2457,2457,2457,2457]
 	t=$(( (1000000000 + (e * 32) - 1) / (e * 32) ))
   cmd="python isaacgymenvs/train.py \
-    task_id=[16] \
+    task_id=[16,16,16,16,16,16,16,16,16,4] \
     task_counts=$task_counts \
     num_envs=$e \
     task=meta-world-v2 \
