@@ -15,6 +15,9 @@ do
     train=meta-world-mt10-famo-PPO \
     seed=47 \
     wandb_activate=True \
+    wandb_entity=whuang369-university-of-wisconsin-madison \
+    wandb_project=mtbench-test-mask \
+    wandb_group=mt10-famo \
     headless=True \
     sim_device=cuda:0 \
     rl_device=cuda:0 \
