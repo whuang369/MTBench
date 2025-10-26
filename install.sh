@@ -1,8 +1,15 @@
+export SCRATCH_DIR=$(pwd)
+
+export PIP_CACHE_DIR=$SCRATCH_DIR/pip_cache
+export TORCH_EXTENSIONS_DIR=$SCRATCH_DIR/torch_extensions
+export HF_HOME=$SCRATCH_DIR/huggingface
+export TMPDIR=$SCRATCH_DIR/tmp
+export TRANSFORMERS_CACHE=$SCRATCH_DIR/transformers
+mkdir -p $PIP_CACHE_DIR $TORCH_EXTENSIONS_DIR $HF_HOME $TMPDIR $TRANSFORMERS_CACHE
+
 mkdir miniconda3
 wget https://repo.anaconda.com/miniconda/Miniconda3-py310_24.5.0-0-Linux-x86_64.sh -O miniconda3/miniconda.sh
 bash miniconda3/miniconda.sh -b -u -p miniconda3
-
-export PIP_NO_CACHE_DIR=off
 
 source miniconda3/bin/activate
 conda create -y -n py38env python=3.8
