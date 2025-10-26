@@ -149,7 +149,7 @@ class MTA2CAgent(A2CAgent):
         super().init_tensors()
         # Initialize env_ids tensor for gradient masking (always initialize for consistency)
         self.experience_buffer.tensor_dict['env_ids'] = torch.zeros(
-            (self.horizon_length, self.num_envs), 
+            (self.horizon_length, self.num_actors),
             device=self.device, 
             dtype=torch.long
         )
@@ -181,16 +181,13 @@ class MTA2CAgent(A2CAgent):
 
         # Environment recreation calls removed
 
-        if self.global_steps == 0:
-            self.vec_env.env.update_mask()
-
         for n in range(self.horizon_length):
             self.global_steps += self.num_actors
             
             # Update mask every 7864320 steps if masking is enabled
             if (hasattr(self.vec_env.env, 'masking_enabled') and 
                 self.vec_env.env.masking_enabled and 
-                self.global_steps == 0):
+                self.global_steps % 7864320 == 0):
                 self.vec_env.env.update_mask()
             
             if self.use_action_masks:
@@ -208,7 +205,7 @@ class MTA2CAgent(A2CAgent):
                 self.experience_buffer.update_data('states', n, self.obs['states'])
             
             # Store environment IDs for gradient masking (always store for consistency)
-            env_ids = torch.arange(self.num_envs, device=self.device)
+            env_ids = torch.arange(self.num_actors, device=self.device)
             self.experience_buffer.update_data('env_ids', n, env_ids)
 
             step_time_start = time.time()
@@ -301,6 +298,7 @@ class MTA2CAgent(A2CAgent):
         rnn_states = batch_dict.get('rnn_states', None)
         rnn_masks = batch_dict.get('rnn_masks', None)
         task_indices = batch_dict["task_indices"]
+        env_ids = batch_dict['env_ids']
 
 
         advantages = returns - values
@@ -349,6 +347,7 @@ class MTA2CAgent(A2CAgent):
         dataset_dict['rnn_masks'] = rnn_masks[perm] if rnn_masks is not None else None
         dataset_dict['mu'] = mus[perm]
         dataset_dict['sigma'] = sigmas[perm]
+        dataset_dict['env_ids'] = env_ids[perm]
 
         self.dataset.update_values_dict(dataset_dict)
 
@@ -361,6 +360,7 @@ class MTA2CAgent(A2CAgent):
             dataset_dict['obs'] = batch_dict['states'][perm]
             dataset_dict['dones'] = dones[perm]
             dataset_dict['rnn_masks'] = rnn_masks[perm]
+            dataset_dict['env_ids'] = env_ids[perm]
             self.central_value_net.update_dataset(dataset_dict)
 
         self.dataset.values_dict["task_indices"] = batch_dict["task_indices"][perm]
@@ -472,6 +472,9 @@ class MTA2CAgent(A2CAgent):
 
             # Get gradient mask based on environment IDs
             gradient_mask = self.get_gradient_mask_from_env_ids(input_dict.get('env_ids', None), len(advantage))
+            
+            # Ensure gradient mask doesn't cause numerical issues by adding small epsilon
+            gradient_mask = gradient_mask + 1e-8
 
             a_loss = self.actor_loss_func(old_action_log_probs_batch, action_log_probs, advantage, self.ppo, curr_e_clip, task_indices)
             # Apply mask to actor loss
@@ -495,8 +498,6 @@ class MTA2CAgent(A2CAgent):
             loss = a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
 
         loss = loss * gradient_mask
-
-        print(torch.sum(gradient_mask == 0))
 
         return loss, (mu, sigma, action_log_probs), (a_loss, c_loss, entropy, b_loss)
     
@@ -639,15 +640,6 @@ class MTA2CAgent(A2CAgent):
         # env_ids contains the environment indices for each sample in the batch
         # We want to mask out samples from masked environments
         gradient_mask = (~env_mask[env_ids]).float()  # 1 for unmasked, 0 for masked
-
-        zero_cnt = 0
-
-        for i in env_mask:
-            if i == 0:
-                zero_cnt += 1
-
-        for i in range(5000):
-            print(f"ZERO COUNT 11111111111: {zero_cnt}")
         
         return gradient_mask
 

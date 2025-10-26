@@ -575,8 +575,9 @@ class FrankaBaseEnvV2(VecTask):
         # Initialize environment masking
         self.masking_enabled = self.cfg["env"].get("environment_masking", {}).get("enabled", False)
         if self.masking_enabled:
-            self.mask = torch.ones(self.num_envs, device=self.device, dtype=torch.bool)  # 1 means don't collect data, 0 means collect data
+            self.mask = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)  # 1 means don't collect data, 0 means collect data
             self.num_envs_per_task = self.cfg["env"].get("environment_masking", {}).get("num_envs_per_task", [])
+            self.mask_upd_freq = self.cfg["env"].get("environment_masking", {}).get("update_frequency", 7864320)
 
         if self.debug_viz:
             self.camera_frames = []
@@ -938,9 +939,6 @@ class FrankaBaseEnvV2(VecTask):
         """
         if not self.masking_enabled:
             return
-
-        for i in range(5000):
-            print("im called!!!!")
             
         # Start with all environments masked (don't collect data)
         self.mask.fill_(True)

@@ -108,6 +108,11 @@ horizon: 32
 
 # Environment masking settings
 environment_masking:
-  enabled: True  # Set to True to enable environment masking
-  update_frequency: 1000  # How often to update masks (in steps)
-  num_envs_per_task: [0, 2458, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]  # Only task 16 (index 16) has 1 environment
+  enabled: ${enable_mask}  # Set to True to enable environment masking
+  update_frequency: ${mask_upd_freq}  # How often to update masks (in steps)
+  num_envs_per_task: ${num_active_envs_per_task}  # Number of environments per task
+
+# Command line overrides for environment masking
+enable_mask: False  # Can be overridden from command line
+mask_upd_freq: 7864320  # Can be overridden from command line
+num_active_envs_per_task: [0, 2458, 0, 0, 0, 0, 0, 0, 0, 0]  # Can be overridden from command line
