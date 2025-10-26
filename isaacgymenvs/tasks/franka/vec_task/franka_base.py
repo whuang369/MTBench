@@ -508,6 +508,10 @@ class FrankaBaseEnvV2(VecTask):
                 average_task_success = sum(task_success_rates) / len(task_success_rates)
                 self.extras['episode']["average_task_success_rate"] = average_task_success
 
+            # Log active environment counts per task if masking is enabled
+            if self.masking_enabled:
+                self.log_active_env_counts()
+
             self.cumulatives["reward"][env_ids] = 0
             self.cumulatives["success"][env_ids] = 0
 
@@ -573,7 +577,6 @@ class FrankaBaseEnvV2(VecTask):
         if self.masking_enabled:
             self.mask = torch.ones(self.num_envs, device=self.device, dtype=torch.bool)  # 1 means don't collect data, 0 means collect data
             self.num_envs_per_task = self.cfg["env"].get("environment_masking", {}).get("num_envs_per_task", [])
-            self.update_mask()
 
         if self.debug_viz:
             self.camera_frames = []
@@ -935,6 +938,9 @@ class FrankaBaseEnvV2(VecTask):
         """
         if not self.masking_enabled:
             return
+
+        for i in range(5000):
+            print("im called!!!!")
             
         # Start with all environments masked (don't collect data)
         self.mask.fill_(True)
@@ -956,5 +962,23 @@ class FrankaBaseEnvV2(VecTask):
                     if env_idx + i < self.num_envs:
                         self.mask[env_idx + i] = False  # 0 means collect data
                 env_idx += task_env_count
+
+    def log_active_env_counts(self):
+        """Log the count of active (unmasked) environments per task to episode extras."""
+        if not self.masking_enabled:
+            return
+            
+        # Count active environments per task
+        for i, tid in enumerate(self.task_idx):
+            task_mask = (self.task_indices == tid)
+            active_mask = ~self.mask  # unmasked environments (active)
+            active_count = (task_mask & active_mask).sum().item()
+            
+            # Add to episode extras for logging
+            self.extras['episode'][f"task_{tid}_active_envs"] = active_count
+        
+        # Log total active environments
+        total_active = (~self.mask).sum().item()
+        self.extras['episode']["total_active_envs"] = total_active
 
     ##########################################################################################

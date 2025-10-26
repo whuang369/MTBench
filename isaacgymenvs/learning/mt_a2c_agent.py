@@ -139,12 +139,20 @@ class MTA2CAgent(A2CAgent):
         self.actor_loss_func = actor_loss_mt
 
         self.global_steps = 0
-        
-        # Log initial active environments per task if masking is enabled
-        if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
-            # Add env_ids to tensor list for gradient masking
-            self.tensor_list.append('env_ids')
-            self.log_active_envs_per_task()
+
+        self.num_envs = self.config.get("num_envs", 0)
+
+        # Initialize environment ID tracking for gradient masking
+        self.init_tensors()
+
+    def init_tensors(self):
+        super().init_tensors()
+        # Initialize env_ids tensor for gradient masking (always initialize for consistency)
+        self.experience_buffer.tensor_dict['env_ids'] = torch.zeros(
+            (self.horizon_length, self.num_envs), 
+            device=self.device, 
+            dtype=torch.long
+        )
 
     def restore(self, fn):
         # weights = torch.load(fn, map_location=self.device)
@@ -165,32 +173,31 @@ class MTA2CAgent(A2CAgent):
 
     def inner_play_steps(self):
         update_list = self.update_list
+        
+        # Set up tensor_list to include env_ids (always included for consistency)
+        self.tensor_list = update_list + ['obses', 'states', 'dones', 'env_ids']
 
         step_time = 0.0
 
         # Environment recreation calls removed
 
+        if self.global_steps == 0:
+            self.vec_env.env.update_mask()
+
         for n in range(self.horizon_length):
-            self.global_steps += 1
+            self.global_steps += self.num_actors
             
-            # Update mask every 1000 steps if masking is enabled
+            # Update mask every 7864320 steps if masking is enabled
             if (hasattr(self.vec_env.env, 'masking_enabled') and 
                 self.vec_env.env.masking_enabled and 
-                self.global_steps % 1000 == 0):
+                self.global_steps == 0):
                 self.vec_env.env.update_mask()
-                # Log number of active environments per task to wandb
-                self.log_active_envs_per_task()
             
             if self.use_action_masks:
                 masks = self.vec_env.get_action_masks()
                 res_dict = self.get_masked_action_values(self.obs, masks)
             else:
                 res_dict = self.get_action_values(self.obs) # calls the model to sample an action (is_train=False)
-            
-            # Get environment mask if masking is enabled
-            env_mask = None
-            if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
-                env_mask = self.vec_env.env.mask
             
             self.experience_buffer.update_data('obses', n, self.obs['obs'])
             self.experience_buffer.update_data('dones', n, self.dones)
@@ -200,10 +207,9 @@ class MTA2CAgent(A2CAgent):
             if self.has_central_value:
                 self.experience_buffer.update_data('states', n, self.obs['states'])
             
-            # Store environment IDs for gradient masking
-            if hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled:
-                env_ids = torch.arange(self.num_envs, device=self.device)
-                self.experience_buffer.update_data('env_ids', n, env_ids)
+            # Store environment IDs for gradient masking (always store for consistency)
+            env_ids = torch.arange(self.num_envs, device=self.device)
+            self.experience_buffer.update_data('env_ids', n, env_ids)
 
             step_time_start = time.time()
             self.obs, rewards, self.dones, infos = self.env_step(res_dict['actions'])
@@ -488,6 +494,10 @@ class MTA2CAgent(A2CAgent):
 
             loss = a_loss + 0.5 * c_loss * self.critic_coef - entropy * self.entropy_coef + b_loss * self.bounds_loss_coef
 
+        loss = loss * gradient_mask
+
+        print(torch.sum(gradient_mask == 0))
+
         return loss, (mu, sigma, action_log_probs), (a_loss, c_loss, entropy, b_loss)
     
     def calc_gradients(self, input_dict):
@@ -629,47 +639,17 @@ class MTA2CAgent(A2CAgent):
         # env_ids contains the environment indices for each sample in the batch
         # We want to mask out samples from masked environments
         gradient_mask = (~env_mask[env_ids]).float()  # 1 for unmasked, 0 for masked
+
+        zero_cnt = 0
+
+        for i in env_mask:
+            if i == 0:
+                zero_cnt += 1
+
+        for i in range(5000):
+            print(f"ZERO COUNT 11111111111: {zero_cnt}")
         
         return gradient_mask
-
-    def log_active_envs_per_task(self):
-        """Log the number of active environments per task to wandb."""
-        if not (hasattr(self.vec_env.env, 'masking_enabled') and self.vec_env.env.masking_enabled):
-            return
-            
-        env_mask = self.vec_env.env.mask
-        task_indices = self.vec_env.env.extras["task_indices"]
-        ordered_task_names = self.vec_env.env.extras["ordered_task_names"]
-        
-        # Count active environments per task
-        active_envs_per_task = {}
-        for task_idx in torch.unique(task_indices):
-            task_name = ordered_task_names[task_idx.item()]
-            task_mask = (task_indices == task_idx)
-            active_mask = ~env_mask  # unmasked environments
-            active_count = (task_mask & active_mask).sum().item()
-            active_envs_per_task[f"active_envs/{task_name}"] = active_count
-        
-        # Log to tensorboard
-        if hasattr(self, 'writer') and self.writer is not None:
-            for task_name, count in active_envs_per_task.items():
-                self.writer.add_scalar(task_name, count, self.global_steps)
-        
-        # Calculate total active environments
-        total_active = sum(active_envs_per_task.values())
-        
-        # Log total active environments
-        if hasattr(self, 'writer') and self.writer is not None:
-            self.writer.add_scalar("active_envs/total_active", total_active, self.global_steps)
-        
-        # Log the configuration from the config file
-        if hasattr(self.vec_env.env, 'num_envs_per_task'):
-            config_envs = self.vec_env.env.num_envs_per_task
-            for i, count in enumerate(config_envs):
-                if i < len(ordered_task_names):
-                    task_name = ordered_task_names[i]
-                    if hasattr(self, 'writer') and self.writer is not None:
-                        self.writer.add_scalar(f"config_envs/{task_name}", count, self.global_steps)
 
     def train_epoch(self):
         # even though it is PPO like
