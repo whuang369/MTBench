@@ -187,7 +187,7 @@ class MTA2CAgent(A2CAgent):
             # Update mask every 7864320 steps if masking is enabled
             if (hasattr(self.vec_env.env, 'masking_enabled') and 
                 self.vec_env.env.masking_enabled and 
-                self.global_steps % 7864320 == 0):
+                self.global_steps % self.vec_env.env.mask_upd_freq == 0):
                 self.vec_env.env.update_mask()
             
             if self.use_action_masks:
