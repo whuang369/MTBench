@@ -2,7 +2,7 @@
 for e in 24576
 do
 	task_counts=[2458,2458,2458,2458,2458,2458,2457,2457,2457,2457]
-	t=$(( (10000000 + (e * 32) - 1) / (e * 32) ))
+	t=$(( (1000000000 + (e * 32) - 1) / (e * 32) ))
   cmd="python isaacgymenvs/train.py \
     task_id=[4,16,17,18,28,31,38,40,48,49] \
     task_counts=$task_counts \
