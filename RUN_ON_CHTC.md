@@ -81,7 +81,7 @@ sh submit.sh JOB_SCRIPT_NAME MEMORY DISK GLOBAL_GPU_MEMORY JOB_LENGTH
 ```
 Replace JOB_SCRIPT_NAME, MEMORY, DISK, GLOBAL_GPU_MEMORY, JOB_LENGTH with your job script name, requested memory(GB), requested disk size(GB), requested global gpu memory(MB), and your job length.
 
-### Recommanded Settings
+### Recommended Settings
 
 ```markdown
 MEMROY = 100
