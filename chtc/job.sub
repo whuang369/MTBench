@@ -2,7 +2,7 @@
 
 universe = vanilla
 
-executable = ${commands_file}.sh
+executable = $(commands_file).sh
 initial_dir = $(results_dir)
 log = ../../$(log_dir)/$(Process).log
 output = ../../$(log_dir)/$(Process).out
@@ -12,8 +12,8 @@ should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
 
 request_cpus = 1
-request_memory = 50GB
-request_disk = 50GB
+request_memory = $(mem)GB
+request_disk = $(disk)GB
 
 # Extra GPU settings
 request_gpus            = 1

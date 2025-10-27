@@ -2,8 +2,8 @@ universe = vanilla
 executable = job_gpu_i.sh
 
 request_cpus = 1
-request_memory = 100GB
-request_disk = 100GB
+request_memory = $(mem)GB
+request_disk = $(disk)GB
 
 # Extra GPU settings
 request_gpus            = 1
@@ -17,7 +17,7 @@ Requirements            = (Target.CUDADriverVersion >= 12.1) && (Target.GPUs_Glo
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
-requirements = (Target.HasCHTCStaging == true) && (Target.CUDADriverVersion >= 12.1) && (Target.GPUs_GlobalMemoryMb > 10240)
+requirements = (Target.HasCHTCStaging == true) && (Target.CUDADriverVersion >= 12.1) && (Target.GPUs_GlobalMemoryMb > $(gpu_mem))
 
 +InteractiveJob = true
 
