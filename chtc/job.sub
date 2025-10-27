@@ -2,12 +2,11 @@
 
 universe = vanilla
 
-executable = job.sh
+executable = ${commands_file}.sh
 initial_dir = $(results_dir)
 log = ../../$(log_dir)/$(Process).log
 output = ../../$(log_dir)/$(Process).out
 error = ../../$(log_dir)/$(Process).err
-arguments = $(params)
 
 should_transfer_files = YES
 when_to_transfer_output = ON_EXIT
@@ -28,4 +27,4 @@ Requirements            = (Target.CUDADriverVersion >= 12.1) && (Target.GPUs_Glo
 
 requirements = (Target.HasCHTCStaging == true) && (Target.GPUs_GlobalMemoryMb > $(gpu_mem))
 
-queue 1 params from $(commands_file)
+queue 1
